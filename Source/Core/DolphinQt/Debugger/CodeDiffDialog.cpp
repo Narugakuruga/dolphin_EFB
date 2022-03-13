@@ -128,6 +128,7 @@ void CodeDiffDialog::ClearData()
   m_include_size_label->setText(QStringLiteral("Included: 0"));
   m_exclude_btn->setEnabled(false);
   m_include_btn->setEnabled(false);
+  m_include_active = false;
   // Swap is used instead of clear for efficiency in the case of huge m_include/m_exclude
   std::vector<Diff>().swap(m_include);
   std::vector<Diff>().swap(m_exclude);
@@ -202,38 +203,32 @@ void CodeDiffDialog::OnRecord(bool enabled)
 void CodeDiffDialog::OnInclude()
 {
   const auto recorded_symbols = CalculateSymbolsFromProfile();
+
+  if (recorded_symbols.empty())
+    return;
+
   if (m_include.empty() && m_exclude.empty())
   {
     m_include = recorded_symbols;
-    return;
+    m_include_active = true;
   }
+  else if (m_include.empty())
+  {
+    // If include becomes empty after having items on it, don't refill it until after a reset.
+    if (m_include_active)
+      return;
 
-  std::vector<Diff> current_diff;
-  if (m_exclude.empty())
-  {
-    current_diff = recorded_symbols;
-  }
-  else
-  {
-    for (auto& iter : recorded_symbols)
-    {
-      auto pos = std::lower_bound(m_exclude.begin(), m_exclude.end(), iter.symbol);
-
-      if (pos == m_exclude.end() || pos->symbol != iter.symbol)
-      {
-        current_diff.push_back(iter);
-      }
-    }
-  }
-
-  if (!m_include.empty())
-  {
-    RemoveMissingSymbolsFromIncludes(current_diff);
-  }
-  else
-  {
+    // If we are building include for the first time and we have an exlcude list, then include =
+    // recorded - excluded.
     m_include = recorded_symbols;
     RemoveMatchingSymbolsFromIncludes(m_exclude);
+    m_include_active = true;
+  }
+  else
+  {
+    // If include already exists, keep items that are in both include and recorded. Exclude list
+    // becomes irrelevant.
+    RemoveMissingSymbolsFromIncludes(recorded_symbols);
   }
 }
 
@@ -243,34 +238,24 @@ void CodeDiffDialog::OnExclude()
   if (m_include.empty() && m_exclude.empty())
   {
     m_exclude = recorded_symbols;
-    return;
   }
-
-  std::vector<Diff> current_diff;
-  if (m_exclude.empty())
+  else if (m_include.empty())
   {
-    m_exclude = recorded_symbols;
-  }
-  else
-  {
+    // If there is only an exclude list, update it.
     for (auto& iter : recorded_symbols)
     {
       auto pos = std::lower_bound(m_exclude.begin(), m_exclude.end(), iter.symbol);
 
       if (pos == m_exclude.end() || pos->symbol != iter.symbol)
-      {
-        current_diff.push_back(iter);
         m_exclude.insert(pos, iter);
-      }
     }
-    // If there is no include list, we're done.
-    if (m_include.empty())
-      return;
   }
-
-  if (!m_exclude.empty())
+  else
   {
-    RemoveMatchingSymbolsFromIncludes(current_diff);
+    // If include already exists, the exclude list will have been used to trim it, so the exclude
+    // list is now irrelevant, as anythng not on the include list is effectively excluded.
+    // Exclude/subtract recorded items from the include list.
+    RemoveMatchingSymbolsFromIncludes(recorded_symbols);
   }
 }
 
@@ -372,6 +357,14 @@ void CodeDiffDialog::Update(bool include)
                                       create_item(QStringLiteral("%1").arg(fix_sym), iter.addr));
     m_matching_results_table->setItem(i, 3, create_item(QStringLiteral(""), iter.addr));
     i++;
+  }
+
+  // If we have ruled out all functions from being included.
+  if (m_include_active && m_include.empty())
+  {
+    m_matching_results_table->setRowCount(1);
+    m_matching_results_table->setItem(
+        0, 2, create_item(QStringLiteral("No possible functions left. Reset.")));
   }
 
   m_exclude_size_label->setText(QStringLiteral("Excluded: %1").arg(m_exclude.size()));

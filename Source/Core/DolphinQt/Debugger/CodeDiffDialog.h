@@ -66,4 +66,5 @@ private:
   std::vector<Diff> m_exclude;
   std::vector<Diff> m_include;
   bool m_failed_requirements = false;
+  bool m_include_active = false;
 };
