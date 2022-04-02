@@ -12,12 +12,31 @@
 
 class MemoryViewWidget;
 class QCheckBox;
+class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QShowEvent;
 class QSplitter;
+
+enum class InputId : int
+{
+  // Order does not matter here.
+  S8 = 1,
+  S16,
+  S32,
+  U8,
+  U16,
+  U32,
+  HEX8,
+  HEX16,
+  HEX32,
+  HEXSTR,
+  FLOAT,
+  DOUBLE,
+  ASCII
+};
 
 class MemoryWidget : public QDockWidget
 {
@@ -76,6 +95,7 @@ private:
   QLineEdit* m_search_address;
   QLineEdit* m_search_offset;
   QLineEdit* m_data_edit;
+  QCheckBox* m_base_check;
   QLabel* m_data_preview;
   QPushButton* m_set_value;
   QPushButton* m_dump_mram;
@@ -86,10 +106,7 @@ private:
   // Search
   QPushButton* m_find_next;
   QPushButton* m_find_previous;
-  QRadioButton* m_input_ascii;
-  QRadioButton* m_input_float;
-  QRadioButton* m_input_hex;
-  QRadioButton* m_input_integer;
+  QComboBox* m_input_combo;
   QLabel* m_result_label;
 
   // Address Spaces
