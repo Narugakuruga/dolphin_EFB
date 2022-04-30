@@ -405,7 +405,7 @@ private:
   std::unique_ptr<AbstractStagingTexture> m_readback_texture;
 
   u8* m_bloom_dst_check = nullptr;
-  int m_efb_num = 0;
+  bool m_bloom_hit = false;
 };
 
 extern std::unique_ptr<TextureCacheBase> g_texture_cache;
