@@ -337,6 +337,71 @@ TextureCacheBase::ApplyPaletteToEntry(TCacheEntry* entry, const u8* palette, TLU
   return decoded_entry;
 }
 
+void TextureCacheBase::BlurCopy(TCacheEntry* existing_entry)
+{
+  // Complete novice coding, errors likely.
+  const AbstractPipeline* pipeline = g_shader_cache->GetTextureBlurPipeline();
+
+  if (!pipeline)
+  {
+    ERROR_LOG_FMT(VIDEO, "Failed to obtain texture blur pipeline");
+    return;
+  }
+
+  TextureConfig new_config = existing_entry->texture->GetConfig();
+
+  TCacheEntry* blur_entry = AllocateCacheEntry(new_config);
+  if (!blur_entry)
+    return;
+
+  blur_entry->SetGeneralParameters(existing_entry->addr, existing_entry->size_in_bytes,
+                                   existing_entry->format.texfmt,
+                                   existing_entry->should_force_safe_hashing);
+  blur_entry->SetDimensions(existing_entry->native_width, existing_entry->native_height, 1);
+  blur_entry->is_efb_copy = true;
+  blur_entry->may_have_overlapping_textures = false;
+  blur_entry->texture->FinishedRendering();
+
+  g_renderer->BeginUtilityDrawing();
+
+  struct Uniforms
+  {
+    float width;
+    float height;
+    float blur_radius;
+  };
+
+  Uniforms uniforms;
+  uniforms.width = static_cast<float>(new_config.width);
+  uniforms.height = static_cast<float>(new_config.height);
+  // May not be the best radius for blurring. Slower at high IR. Could make it two-pass to be
+  // maybe(?) quicker, but don't know how.
+  uniforms.blur_radius = static_cast<float>(new_config.width / existing_entry->native_width);
+
+  g_vertex_manager->UploadUtilityUniforms(&uniforms, sizeof(uniforms));
+
+  g_renderer->SetAndDiscardFramebuffer(blur_entry->framebuffer.get());
+  g_renderer->SetViewportAndScissor(blur_entry->texture->GetRect());
+  g_renderer->SetPipeline(pipeline);
+  g_renderer->SetTexture(0, existing_entry->texture.get());
+  g_renderer->SetSamplerState(1, RenderState::GetPointSamplerState());
+  g_renderer->Draw(0, 3);
+  g_renderer->EndUtilityDrawing();
+
+  blur_entry->texture->FinishedRendering();
+
+  if (blur_entry)
+  {
+    existing_entry->texture.swap(blur_entry->texture);
+    existing_entry->framebuffer.swap(blur_entry->framebuffer);
+
+    // Causes serious issues if not done.
+    auto config = blur_entry->texture->GetConfig();
+    texture_pool.emplace(
+        config, TexPoolEntry(std::move(blur_entry->texture), std::move(blur_entry->framebuffer)));
+  }
+}
+
 TextureCacheBase::TCacheEntry* TextureCacheBase::ReinterpretEntry(const TCacheEntry* existing_entry,
                                                                   TextureFormat new_format)
 {
@@ -1810,8 +1875,8 @@ TextureCacheBase::GetXFBTexture(u32 address, u32 width, u32 height, u32 stride,
       entry->texture_info_name = fmt::format("{}_{}", XFB_DUMP_PREFIX, id);
     }
 
-    if (g_ActiveConfig.bDumpXFBTarget)
-    {
+  if (g_ActiveConfig.bDumpXFBTarget)
+  {
       entry->texture->Save(fmt::format("{}{}_n{:06}_{}.png", File::GetUserPath(D_DUMPTEXTURES_IDX),
                                        XFB_DUMP_PREFIX, xfb_count++, id),
                            0);
@@ -2138,21 +2203,33 @@ void TextureCacheBase::CopyRenderTargetToTexture(
   u32 scaled_tex_w = g_renderer->EFBToScaledX(width);
   u32 scaled_tex_h = g_renderer->EFBToScaledY(height);
   bool EFBSkipUpscale = false;
+  bool EFBBlur = false;
 
   if (is_xfb_copy)
   {
+    m_efb_num = 0;
     EFBSkipUpscale = false;
   }
   else if (!g_ActiveConfig.bCopyEFBScaled)
   {
     EFBSkipUpscale = true;
   }
-  else if (g_ActiveConfig.bEFBExcludeEnabled && width <= g_ActiveConfig.iEFBExcludeWidth)
+  else if (g_ActiveConfig.bEFBExcludeEnabled && width <= g_ActiveConfig.iEFBExcludeWidth &&
+           m_efb_num > 1)
   {
+    // Could add option for texture formats here. Note: Mario Sunshine's graffiti has a non-standard
+    // texture that benefits from excluding from upscaling.
+    // Could maybe increase the efb_num check more.
     if (!g_ActiveConfig.bEFBExcludeAlt)
       EFBSkipUpscale = true;
     else if (m_bloom_dst_check == dst)
       EFBSkipUpscale = true;
+
+    if (g_ActiveConfig.bEFBBlur && EFBSkipUpscale == true)
+    {
+      EFBSkipUpscale = false;
+      EFBBlur = true;
+    }
   }
 
   if (scaleByHalf)
@@ -2170,6 +2247,7 @@ void TextureCacheBase::CopyRenderTargetToTexture(
     scaled_tex_h = tex_h;
   }
 
+  m_efb_num += 1;
   m_bloom_dst_check = dst;
 
   // Get the base (in memory) format of this efb copy.
@@ -2270,6 +2348,13 @@ void TextureCacheBase::CopyRenderTargetToTexture(
                           isIntensity, gamma, clamp_top, clamp_bottom,
                           GetVRAMCopyFilterCoefficients(filter_coefficients));
 
+      // Bloom fix
+      if (EFBBlur == true &&
+          (baseFormat == TextureFormat::RGB565 || baseFormat == TextureFormat::RGBA8))
+      {
+        BlurCopy(entry);
+      }
+
       if (is_xfb_copy && (g_ActiveConfig.bDumpXFBTarget || g_ActiveConfig.bGraphicMods))
       {
         const std::string id = fmt::format("{}x{}", tex_w, tex_h);
@@ -2283,8 +2368,8 @@ void TextureCacheBase::CopyRenderTargetToTexture(
           entry->texture->Save(fmt::format("{}{}_n{:06}_{}.png",
                                            File::GetUserPath(D_DUMPTEXTURES_IDX), XFB_DUMP_PREFIX,
                                            xfb_count++, id),
-                               0);
-        }
+            0);
+      }
       }
       else if (g_ActiveConfig.bDumpEFBTarget || g_ActiveConfig.bGraphicMods)
       {
@@ -2295,15 +2380,15 @@ void TextureCacheBase::CopyRenderTargetToTexture(
         }
 
         if (g_ActiveConfig.bDumpEFBTarget)
-        {
+      {
           static int efb_count = 0;
           entry->texture->Save(fmt::format("{}{}_n{:06}_{}.png",
                                            File::GetUserPath(D_DUMPTEXTURES_IDX), EFB_DUMP_PREFIX,
                                            efb_count++, id),
-                               0);
-        }
+            0);
       }
     }
+  }
   }
 
   if (copy_to_ram)

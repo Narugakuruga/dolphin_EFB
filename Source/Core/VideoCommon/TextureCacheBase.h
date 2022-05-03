@@ -312,6 +312,8 @@ private:
 
   TCacheEntry* ApplyPaletteToEntry(TCacheEntry* entry, const u8* palette, TLUTFormat tlutfmt);
 
+  void BlurCopy(TCacheEntry* existing_entry);
+
   TCacheEntry* ReinterpretEntry(const TCacheEntry* existing_entry, TextureFormat new_format);
 
   TCacheEntry* DoPartialTextureUpdates(TCacheEntry* entry_to_update, const u8* palette,
@@ -403,6 +405,7 @@ private:
   std::unique_ptr<AbstractStagingTexture> m_readback_texture;
 
   u8* m_bloom_dst_check = nullptr;
+  int m_efb_num = 0;
 };
 
 extern std::unique_ptr<TextureCacheBase> g_texture_cache;
