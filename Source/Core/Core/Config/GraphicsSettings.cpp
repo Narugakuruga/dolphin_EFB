@@ -97,6 +97,9 @@ const Info<bool> GFX_PREFER_VS_FOR_LINE_POINT_EXPANSION{
 const Info<TriState> GFX_MTL_MANUALLY_UPLOAD_BUFFERS{
     {System::GFX, "Settings", "ManuallyUploadBuffers"}, TriState::Auto};
 const Info<bool> GFX_MTL_USE_PRESENT_DRAWABLE{{System::GFX, "Settings", "MTLUsePresentDrawable"},
+const Info<int> GFX_EFB_SCALE_EXCLUDE_WIDTH{{System::GFX, "Settings", "EFBScaledExcludeWidth"}, 0};
+const Info<bool> GFX_EFB_SCALE_EXCLUDE_ALT{{System::GFX, "Settings", "EFBScaledExcludeAlt"}, false};
+const Info<bool> GFX_EFB_SCALE_EXCLUDE_ENABLED{{System::GFX, "Settings", "EFBScaledExcludeEnabled"},
                                               false};
 
 const Info<bool> GFX_SW_DUMP_OBJECTS{{System::GFX, "Settings", "SWDumpObjects"}, false};
