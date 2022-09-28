@@ -372,7 +372,6 @@ void SingleStep()
 void RunLoop()
 {
   s_cpu_core_base->Run();
-  Host_UpdateDisasmDialog();
 }
 
 u64 ReadFullTimeBaseValue()

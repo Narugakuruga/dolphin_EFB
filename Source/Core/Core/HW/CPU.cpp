@@ -287,6 +287,7 @@ void EnableStepping(bool stepping)
 
 void Break()
 {
+  Core::State state = Core::GetState();
   std::lock_guard state_lock(s_state_change_lock);
 
   // If another thread is trying to PauseAndLock then we need to remember this
@@ -296,11 +297,13 @@ void Break()
     s_state_system_request_stepping = true;
     return;
   }
-
   // We'll deadlock if we synchronize, the CPU may block waiting for our caller to
   // finish resulting in the CPU loop never terminating.
   SetStateLocked(State::Stepping);
   RunAdjacentSystems(false);
+
+  if (state == Core::State::Running)
+    Core::CallOnStateChangedCallbacks(Core::State::Paused);
 }
 
 void Continue()

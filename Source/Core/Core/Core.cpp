@@ -886,7 +886,6 @@ void Callback_NewField()
     {
       s_frame_step = false;
       CPU::Break();
-      CallOnStateChangedCallbacks(Core::GetState());
     }
   }
 }
