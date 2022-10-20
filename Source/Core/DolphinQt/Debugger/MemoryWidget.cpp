@@ -25,6 +25,8 @@
 #include <QSplitter>
 #include <QTableWidget>
 #include <QVBoxLayout>
+#include <qactiongroup.h>
+#include <qtimer.h>
 
 #include "Common/BitUtils.h"
 #include "Common/FileUtil.h"
@@ -57,6 +59,8 @@ MemoryWidget::MemoryWidget(QWidget* parent) : QDockWidget(parent)
   // according to Settings
   setFloating(settings.value(QStringLiteral("memorywidget/floating")).toBool());
   m_splitter->restoreState(settings.value(QStringLiteral("codewidget/splitter")).toByteArray());
+  m_timer = new QTimer;
+  m_timer->setInterval(500);
 
   connect(&Settings::Instance(), &Settings::MemoryVisibilityChanged, this,
           [this](bool visible) { setHidden(!visible); });
@@ -64,8 +68,10 @@ MemoryWidget::MemoryWidget(QWidget* parent) : QDockWidget(parent)
   connect(&Settings::Instance(), &Settings::DebugModeToggled, this,
           [this](bool enabled) { setHidden(!enabled || !Settings::Instance().IsMemoryVisible()); });
 
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, &MemoryWidget::Update);
-  connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, &MemoryWidget::Update);
+
+  // Not really necessary
+  //connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, &MemoryWidget::Update);
+  //connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, &MemoryWidget::Update);
 
   LoadSettings();
 
@@ -246,12 +252,40 @@ void MemoryWidget::CreateWidgets()
   // Sidebar top menu
   QMenuBar* menubar = new QMenuBar(sidebar);
   menubar->setNativeMenuBar(false);
+  QMenu* menu_views = new QMenu(tr("&View"));
+  menubar->addMenu(menu_views);
 
   QMenu* menu_import = new QMenu(tr("&Import"));
   menu_import->addAction(tr("&Load file to current address"), this,
                          &MemoryWidget::OnSetValueFromFile);
   menubar->addMenu(menu_import);
 
+  auto* auto_update_action = menu_views->addAction(tr("Auto update memory values"));
+  auto_update_action->setCheckable(true);
+  connect(auto_update_action, &QAction::toggled, [this](bool checked) {
+    if (checked)
+      m_timer->start();
+    else
+      m_timer->stop();
+  });
+
+  auto* update_submenu = new QMenu(tr("Update Frequency"));
+  QActionGroup* update_group = new QActionGroup(this);
+  update_group->addAction(tr("1 second"))->setData(1000);
+  update_group->addAction(tr("750 ms"))->setData(750);
+  update_group->addAction(tr("500 ms"))->setData(500);
+  update_group->addAction(tr("250 ms"))->setData(250);
+  update_submenu->addActions(update_group->actions());
+  for (auto* action : update_group->actions())
+    action->setCheckable(true);
+  update_group->actions()[1]->setChecked(true);
+
+  connect(update_group, &QActionGroup::triggered, [this](QAction* action) {
+    const u32 speed = action->data().toUInt();
+    m_timer->setInterval(speed);
+  });
+
+  menu_views->addMenu(update_submenu);
   QMenu* menu_export = new QMenu(tr("&Export"));
   menu_export->addAction(tr("Dump &MRAM"), this, &MemoryWidget::OnDumpMRAM);
   menu_export->addAction(tr("Dump &ExRAM"), this, &MemoryWidget::OnDumpExRAM);
@@ -334,6 +368,12 @@ void MemoryWidget::ConnectWidgets()
           &MemoryWidget::BreakpointsChanged);
   connect(m_memory_view, &MemoryViewWidget::ShowCode, this, &MemoryWidget::ShowCode);
   connect(m_memory_view, &MemoryViewWidget::RequestWatch, this, &MemoryWidget::RequestWatch);
+  connect(m_timer, &QTimer::timeout, this, [this] {
+    if (!isVisible() || Core::GetState() != Core::State::Running)
+      return;
+
+    m_memory_view->UpdateColumns();
+  });
 }
 
 void MemoryWidget::closeEvent(QCloseEvent*)

@@ -38,6 +38,7 @@ constexpr int MISC_COLUMNS = 2;
 constexpr auto USER_ROLE_IS_ROW_BREAKPOINT_CELL = Qt::UserRole;
 constexpr auto USER_ROLE_CELL_ADDRESS = Qt::UserRole + 1;
 constexpr auto USER_ROLE_VALUE_TYPE = Qt::UserRole + 2;
+constexpr auto USER_ROLE_VALID_ADDRESS = Qt::UserRole + 3;
 
 // Numbers for the scrollbar. These affect how much big the draggable part of the scrollbar is, how
 // smooth it scrolls, and how much memory it traverses while dragging.
@@ -180,9 +181,16 @@ MemoryViewWidget::MemoryViewWidget(QWidget* parent) : QWidget(parent)
   this->setLayout(layout);
 
   connect(&Settings::Instance(), &Settings::DebugFontChanged, this, &MemoryViewWidget::UpdateFont);
-  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
-          &MemoryViewWidget::UpdateColumns);
-  connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, &MemoryViewWidget::UpdateColumns);
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this, [this](Core::State state) {
+    if (state != Core::State::Running)
+      UpdateColumns();
+  });
+
+  // Currently, CPURunAsThread will create an infinite loop if this isn't constrained to paused.
+  connect(Host::GetInstance(), &Host::UpdateDisasmDialog, this, [this]() {
+    if (Core::GetState() == Core::State::Paused)
+      UpdateColumns();
+  });
   connect(&Settings::Instance(), &Settings::ThemeChanged, this, &MemoryViewWidget::Update);
 
   // Also calls create table.
@@ -426,29 +434,58 @@ void MemoryViewWidget::Update()
 void MemoryViewWidget::UpdateColumns()
 {
   // Check if table is created
-  if (m_table->item(1, 1) == nullptr)
+  if (m_table->item(1, 1) == nullptr || m_updating)
     return;
 
+  m_updating = true;
   const QSignalBlocker blocker(m_table);
-
-  for (int i = 0; i < m_table->rowCount(); i++)
-  {
-    for (int c = 0; c < m_data_columns; c++)
+  Core::RunAsCPUThread([&] {
+    for (int i = 0; i < m_table->rowCount(); i++)
     {
-      auto* cell_item = m_table->item(i, c + MISC_COLUMNS);
-      const u32 cell_address = cell_item->data(USER_ROLE_CELL_ADDRESS).toUInt();
-      const Type type = static_cast<Type>(cell_item->data(USER_ROLE_VALUE_TYPE).toInt());
+      for (int c = 0; c < m_data_columns; c++)
+      {
+        auto* cell_item = m_table->item(i, c + MISC_COLUMNS);
+        const u32 cell_address = cell_item->data(USER_ROLE_CELL_ADDRESS).toUInt();
+        const Type type = static_cast<Type>(cell_item->data(USER_ROLE_VALUE_TYPE).toInt());
 
-      cell_item->setText(ValueToString(cell_address, type));
+        // Color recently changed items.
+        const std::optional<QString> new_text = ValueToString(cell_address, type);
+        QColor bcolor = cell_item->background().color();
+        const bool valid = cell_item->data(USER_ROLE_VALID_ADDRESS).toBool();
+
+        // It gets a bit complicated, because invalid addresses becoming valid should not be
+        // colored.
+        if (!new_text.has_value())
+        {
+          cell_item->setBackground(QColor(0xFFFFFF));
+          cell_item->setData(USER_ROLE_VALID_ADDRESS, false);
+          cell_item->setText(QStringLiteral("-"));
+        }
+        else if (cell_item->text() != new_text.value() || !valid)
+        {
+          if (!valid)
+            cell_item->setData(USER_ROLE_VALID_ADDRESS, true);
+          else
+            cell_item->setBackground(QColor(0x77FFFF));
+
+          cell_item->setText(new_text.value());
+        }
+        else if (bcolor.red() > 0 && bcolor != QColor(0xFFFFFF) && bcolor != QColor(Qt::red) &&
+                 bcolor != QColor(220, 235, 235, 255))
+        {
+          cell_item->setBackground(cell_item->background().color().lighter(107));
+        }
+      }
     }
-  }
+  });
+  m_updating = false;
 }
 
-QString MemoryViewWidget::ValueToString(u32 address, Type type)
+std::optional<QString> MemoryViewWidget::ValueToString(u32 address, Type type)
 {
   const AddressSpace::Accessors* accessors = AddressSpace::GetAccessors(m_address_space);
   if (!accessors->IsValidAddress(address) || Core::GetState() != Core::State::Paused)
-    return QStringLiteral("-");
+    return std::nullopt;
 
   switch (type)
   {
@@ -509,7 +546,7 @@ QString MemoryViewWidget::ValueToString(u32 address, Type type)
     return string;
   }
   default:
-    return QStringLiteral("-");
+    return std::nullopt;
   }
 }
 

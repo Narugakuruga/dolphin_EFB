@@ -102,4 +102,5 @@ private:
   QRadioButton* m_bp_read_only;
   QRadioButton* m_bp_write_only;
   QCheckBox* m_bp_log_check;
+  QTimer* m_timer;
 };

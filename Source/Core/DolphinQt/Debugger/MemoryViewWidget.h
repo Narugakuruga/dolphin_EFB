@@ -51,6 +51,7 @@ public:
 
   void CreateTable();
   void Update();
+  void UpdateColumns();
   void UpdateFont();
   void ToggleBreakpoint(u32 addr, bool row);
 
@@ -73,13 +74,13 @@ private:
   void OnCopyAddress(u32 addr);
   void OnCopyHex(u32 addr);
   void UpdateBreakpointTags();
-  void UpdateColumns();
   void ScrollbarActionTriggered(int action);
   void ScrollbarSliderReleased();
-  QString ValueToString(u32 address, Type type);
+  std::optional<QString> ValueToString(u32 address, Type type);
 
   MemoryViewTable* m_table;
   QScrollBar* m_scrollbar;
+
   AddressSpace::Type m_address_space{};
   Type m_type = Type::Hex32;
   BPType m_bp_type = BPType::ReadWrite;
@@ -91,6 +92,7 @@ private:
   int m_alignment = 16;
   int m_data_columns;
   bool m_dual_view = false;
+  bool m_updating = false;
 
   friend class MemoryViewTable;
 };
