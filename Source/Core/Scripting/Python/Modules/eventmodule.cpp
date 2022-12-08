@@ -242,6 +242,14 @@ async def codebreakpoint():
   EventContainer::RegisterListeners(Py::Take(module));
 }
 
+static PyObject* Reset(PyObject* module)
+{
+  EventModuleState* state = Py::GetState<EventModuleState>(module);
+  state->callback = Py::Null();
+  state->awaiting_coroutines.clear();
+  Py_RETURN_NONE;
+}
+
 PyMODINIT_FUNC PyInit_event()
 {
   static PyMethodDef methods[] = {
@@ -250,6 +258,7 @@ PyMODINIT_FUNC PyInit_event()
       Py::MakeMethodDef<PyFrameAdvanceEvent::SetCallback>("on_frameadvance"),
       Py::MakeMethodDef<PyMemoryBreakpointEvent::SetCallback>("on_memorybreakpoint"),
       Py::MakeMethodDef<PyCodeBreakpointEvent::SetCallback>("on_codebreakpoint"),
+      Py::MakeMethodDef<Reset>("_dolphin_reset"),
 
       {nullptr, nullptr, 0, nullptr}  // Sentinel
   };
