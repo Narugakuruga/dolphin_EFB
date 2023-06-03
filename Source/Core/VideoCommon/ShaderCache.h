@@ -105,6 +105,9 @@ public:
 
   // Palette texture conversion pipelines
   const AbstractPipeline* GetPaletteConversionPipeline(TLUTFormat format);
+  
+  // EFB Texture blur pipeline
+  const AbstractPipeline* GetTextureBlurPipeline();
 
   // Texture reinterpret pipelines
   const AbstractPipeline* GetTextureReinterpretPipeline(TextureFormat from_format,
