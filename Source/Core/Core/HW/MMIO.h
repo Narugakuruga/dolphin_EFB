@@ -15,6 +15,7 @@
 #include "Core/ConfigManager.h"
 #include "Core/HW/GPFifo.h"
 #include "Core/HW/MMIOHandlers.h"
+#include "Core/System.h"
 
 namespace MMIO
 {
@@ -132,13 +133,13 @@ public:
   template <typename Unit>
   Unit Read(u32 addr)
   {
-    return GetHandlerForRead<Unit>(addr).Read(addr);
+    return GetHandlerForRead<Unit>(addr).Read(Core::System::GetInstance(), addr);
   }
 
   template <typename Unit>
   void Write(u32 addr, Unit val)
   {
-    GetHandlerForWrite<Unit>(addr).Write(addr, val);
+    GetHandlerForWrite<Unit>(addr).Write(Core::System::GetInstance(), addr, val);
   }
 
   // Handlers access interface.
@@ -215,13 +216,13 @@ private:
 template <>
 inline u64 Mapping::Read<u64>(u32 addr)
 {
-  DEBUG_ASSERT(0);
+  DEBUG_ASSERT(false);
   return 0;
 }
 
 template <>
 inline void Mapping::Write(u32 addr, u64 val)
 {
-  DEBUG_ASSERT(0);
+  DEBUG_ASSERT(false);
 }
 }  // namespace MMIO

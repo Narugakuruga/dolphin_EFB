@@ -91,7 +91,7 @@ protected:
     if (expected_count == -1)
       expected_count = count;
     ResetPointers();
-    int actual_count = m_loader->RunVertices(m_src, m_dst, count);
+    int actual_count = m_loader->RunVertices(m_src.GetPointer(), m_dst.GetPointer(), count);
     EXPECT_EQ(actual_count, expected_count);
   }
 
@@ -115,7 +115,7 @@ class VertexLoaderParamTest
           std::tuple<VertexComponentFormat, ComponentFormat, CoordComponentCount, int>>
 {
 };
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AllCombinations, VertexLoaderParamTest,
     ::testing::Combine(
         ::testing::Values(VertexComponentFormat::Direct, VertexComponentFormat::Index8,
@@ -259,7 +259,7 @@ class VertexLoaderSpeedTest : public VertexLoaderTest,
                               public ::testing::WithParamInterface<std::tuple<ComponentFormat, int>>
 {
 };
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     FormatsAndElements, VertexLoaderSpeedTest,
     ::testing::Combine(::testing::Values(ComponentFormat::UByte, ComponentFormat::Byte,
                                          ComponentFormat::UShort, ComponentFormat::Short,
@@ -537,7 +537,7 @@ class VertexLoaderNormalTest
           std::tuple<VertexComponentFormat, ComponentFormat, NormalComponentCount, bool>>
 {
 };
-INSTANTIATE_TEST_CASE_P(
+INSTANTIATE_TEST_SUITE_P(
     AllCombinations, VertexLoaderNormalTest,
     ::testing::Combine(
         ::testing::Values(VertexComponentFormat::NotPresent, VertexComponentFormat::Direct,

@@ -6,6 +6,7 @@
 #include <cstdarg>
 #include <cstddef>
 #include <cstdlib>
+#include <filesystem>
 #include <iomanip>
 #include <limits>
 #include <locale>
@@ -15,11 +16,6 @@
 #include <vector>
 
 #include "Common/CommonTypes.h"
-
-#ifdef _MSC_VER
-#include <filesystem>
-#define HAS_STD_FILESYSTEM
-#endif
 
 std::string StringFromFormatV(const char* format, va_list args);
 
@@ -173,10 +169,8 @@ std::string WithUnifiedPathSeparators(std::string path);
 // This requires forward slashes to be used for the path separators, even on Windows.
 std::string PathToFileName(std::string_view path);
 
-bool StringBeginsWith(std::string_view str, std::string_view begin);
-bool StringEndsWith(std::string_view str, std::string_view end);
 void StringPopBackIf(std::string* s, char c);
-size_t StringUTF8CodePointCount(const std::string& str);
+size_t StringUTF8CodePointCount(std::string_view str);
 
 std::string CP1252ToUTF8(std::string_view str);
 std::string SHIFTJISToUTF8(std::string_view str);
@@ -214,10 +208,36 @@ inline std::string UTF8ToTStr(std::string_view str)
 
 #endif
 
-#ifdef HAS_STD_FILESYSTEM
 std::filesystem::path StringToPath(std::string_view path);
 std::string PathToString(const std::filesystem::path& path);
-#endif
+
+namespace Common
+{
+/// Returns whether a character is printable, i.e. whether 0x20 <= c <= 0x7e is true.
+/// Use this instead of calling std::isprint directly to ensure
+/// the C locale is being used and to avoid possibly undefined behaviour.
+inline bool IsPrintableCharacter(char c)
+{
+  return std::isprint(c, std::locale::classic());
+}
+
+/// Returns whether a character is a letter, i.e. whether 'a' <= c <= 'z' || 'A' <= c <= 'Z'
+/// is true. Use this instead of calling std::isalpha directly to ensure
+/// the C locale is being used and to avoid possibly undefined behaviour.
+inline bool IsAlpha(char c)
+{
+  return std::isalpha(c, std::locale::classic());
+}
+
+inline char ToLower(char ch)
+{
+  return std::tolower(ch, std::locale::classic());
+}
+
+inline char ToUpper(char ch)
+{
+  return std::toupper(ch, std::locale::classic());
+}
 
 // Thousand separator. Turns 12345678 into 12,345,678
 template <typename I>
@@ -238,38 +258,13 @@ std::string ThousandSeparate(I value, int spaces = 0)
 #endif
 }
 
-/// Returns whether a character is printable, i.e. whether 0x20 <= c <= 0x7e is true.
-/// Use this instead of calling std::isprint directly to ensure
-/// the C locale is being used and to avoid possibly undefined behaviour.
-inline bool IsPrintableCharacter(char c)
-{
-  return std::isprint(c, std::locale::classic());
-}
-
-/// Returns whether a character is a letter, i.e. whether 'a' <= c <= 'z' || 'A' <= c <= 'Z'
-/// is true. Use this instead of calling std::isalpha directly to ensure
-/// the C locale is being used and to avoid possibly undefined behaviour.
-inline bool IsAlpha(char c)
-{
-  return std::isalpha(c, std::locale::classic());
-}
-
 #ifdef _WIN32
 std::vector<std::string> CommandLineToUtf8Argv(const wchar_t* command_line);
 #endif
 
 std::string GetEscapedHtml(std::string html);
 
-namespace Common
-{
-inline char ToLower(char ch)
-{
-  return std::tolower(ch, std::locale::classic());
-}
-inline char ToUpper(char ch)
-{
-  return std::toupper(ch, std::locale::classic());
-}
 void ToLower(std::string* str);
 void ToUpper(std::string* str);
+bool CaseInsensitiveEquals(std::string_view a, std::string_view b);
 }  // namespace Common

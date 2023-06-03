@@ -77,7 +77,7 @@ std::string HexDump(const u8* data, size_t size)
       if (row_start + i < size)
       {
         char c = static_cast<char>(data[row_start + i]);
-        out += IsPrintableCharacter(c) ? c : '.';
+        out += Common::IsPrintableCharacter(c) ? c : '.';
       }
     }
     out += "\n";
@@ -431,23 +431,13 @@ std::string ReplaceAll(std::string result, std::string_view src, std::string_vie
   return result;
 }
 
-bool StringBeginsWith(std::string_view str, std::string_view begin)
-{
-  return str.size() >= begin.size() && std::equal(begin.begin(), begin.end(), str.begin());
-}
-
-bool StringEndsWith(std::string_view str, std::string_view end)
-{
-  return str.size() >= end.size() && std::equal(end.rbegin(), end.rend(), str.rbegin());
-}
-
 void StringPopBackIf(std::string* s, char c)
 {
   if (!s->empty() && s->back() == c)
     s->pop_back();
 }
 
-size_t StringUTF8CodePointCount(const std::string& str)
+size_t StringUTF8CodePointCount(std::string_view str)
 {
   return str.size() -
          std::count_if(str.begin(), str.end(), [](char c) -> bool { return (c & 0xC0) == 0x80; });
@@ -557,7 +547,7 @@ std::string CodeTo(const char* tocode, const char* fromcode, std::basic_string_v
     while (src_bytes != 0)
     {
       size_t const iconv_result =
-#if defined(__OpenBSD__) || defined(__NetBSD__)
+#if defined(__NetBSD__)
           iconv(conv_desc, reinterpret_cast<const char**>(&src_buffer), &src_bytes, &dst_buffer,
                 &dst_bytes);
 #else
@@ -645,7 +635,6 @@ std::u16string UTF8ToUTF16(std::string_view input)
   return converter.from_bytes(input.data(), input.data() + input.size());
 }
 
-#ifdef HAS_STD_FILESYSTEM
 // This is a replacement for path::u8path, which is deprecated starting with C++20.
 std::filesystem::path StringToPath(std::string_view path)
 {
@@ -666,8 +655,9 @@ std::string PathToString(const std::filesystem::path& path)
   return path.native();
 #endif
 }
-#endif
 
+namespace Common
+{
 #ifdef _WIN32
 std::vector<std::string> CommandLineToUtf8Argv(const wchar_t* command_line)
 {
@@ -705,8 +695,6 @@ std::string GetEscapedHtml(std::string html)
   return html;
 }
 
-namespace Common
-{
 void ToLower(std::string* str)
 {
   std::transform(str->begin(), str->end(), str->begin(), [](char c) { return Common::ToLower(c); });
@@ -715,5 +703,13 @@ void ToLower(std::string* str)
 void ToUpper(std::string* str)
 {
   std::transform(str->begin(), str->end(), str->begin(), [](char c) { return Common::ToUpper(c); });
+}
+
+bool CaseInsensitiveEquals(std::string_view a, std::string_view b)
+{
+  if (a.size() != b.size())
+    return false;
+  return std::equal(a.begin(), a.end(), b.begin(),
+                    [](char ca, char cb) { return Common::ToLower(ca) == Common::ToLower(cb); });
 }
 }  // namespace Common

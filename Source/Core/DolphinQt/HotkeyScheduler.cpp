@@ -30,6 +30,7 @@
 #include "Core/IOS/USB/Bluetooth/BTBase.h"
 #include "Core/IOS/USB/Bluetooth/BTReal.h"
 #include "Core/State.h"
+#include "Core/System.h"
 #include "Core/WiiUtils.h"
 
 #ifdef HAS_LIBMGBA
@@ -42,7 +43,6 @@
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
 
 #include "VideoCommon/OnScreenDisplay.h"
-#include "VideoCommon/RenderBase.h"
 #include "VideoCommon/VertexShaderManager.h"
 #include "VideoCommon/VideoConfig.h"
 
@@ -353,7 +353,7 @@ void HotkeyScheduler::Run()
 
       if (IsHotkey(HK_VOLUME_TOGGLE_MUTE))
       {
-        AudioCommon::ToggleMuteVolume();
+        AudioCommon::ToggleMuteVolume(Core::System::GetInstance());
         ShowVolume();
       }
 
@@ -482,6 +482,13 @@ void HotkeyScheduler::Run()
         Config::SetCurrent(Config::MAIN_EMULATION_SPEED, speed);
         ShowEmulationSpeed();
       }
+
+      // USB Device Emulation
+      if (IsHotkey(HK_SKYLANDERS_PORTAL))
+        emit SkylandersPortalHotkey();
+
+      if (IsHotkey(HK_INFINITY_BASE))
+        emit InfinityBaseHotkey();
 
       // Slot Saving / Loading
       if (IsHotkey(HK_SAVE_STATE_SLOT_SELECTED))

@@ -22,6 +22,7 @@
 #include "Core/PowerPC/JitInterface.h"
 #include "Core/PowerPC/MMU.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/System.h"
 
 using namespace Gen;
 
@@ -229,6 +230,8 @@ void Jit64::lXXx(UGeckoInstruction inst)
 
 void Jit64::dcbx(UGeckoInstruction inst)
 {
+  FALLBACK_IF(m_accurate_cpu_cache_enabled);
+
   INSTRUCTION_START
   JITDISABLE(bJITLoadStoreOff);
 
@@ -265,7 +268,7 @@ void Jit64::dcbx(UGeckoInstruction inst)
 
     // Alright, now figure out how many loops we want to do.
     const u8 cycle_count_per_loop =
-        js.op[0].opinfo->numCycles + js.op[1].opinfo->numCycles + js.op[2].opinfo->numCycles;
+        js.op[0].opinfo->num_cycles + js.op[1].opinfo->num_cycles + js.op[2].opinfo->num_cycles;
 
     // This is both setting the adjusted loop count to 0 for the downcount <= 0 case and clearing
     // the upper bits for the DIV instruction in the downcount > 0 case.
@@ -318,10 +321,10 @@ void Jit64::dcbx(UGeckoInstruction inst)
   FixupBranch bat_lookup_failed;
   MOV(32, R(effective_address), R(addr));
   const u8* loop_start = GetCodePtr();
-  if (MSR.IR)
+  if (m_ppc_state.msr.IR)
   {
     // Translate effective address to physical address.
-    bat_lookup_failed = BATAddressLookup(addr, tmp, PowerPC::ibat_table.data());
+    bat_lookup_failed = BATAddressLookup(addr, tmp, m_jit.m_mmu.GetIBATTable().data());
     MOV(32, R(tmp), R(effective_address));
     AND(32, R(tmp), Imm32(0x0001ffff));
     AND(32, R(addr), Imm32(0xfffe0000));
@@ -347,7 +350,7 @@ void Jit64::dcbx(UGeckoInstruction inst)
 
   SwitchToFarCode();
   SetJumpTarget(invalidate_needed);
-  if (MSR.IR)
+  if (m_ppc_state.msr.IR)
     SetJumpTarget(bat_lookup_failed);
 
   BitSet32 registersInUse = CallerSavedRegistersInUse();
@@ -358,14 +361,13 @@ void Jit64::dcbx(UGeckoInstruction inst)
   ABI_PushRegistersAndAdjustStack(registersInUse, 0);
   if (make_loop)
   {
-    MOV(32, R(ABI_PARAM1), R(effective_address));
-    MOV(32, R(ABI_PARAM2), R(loop_counter));
-    ABI_CallFunction(JitInterface::InvalidateICacheLines);
+    ABI_CallFunctionPRR(JitInterface::InvalidateICacheLinesFromJIT, &m_system.GetJitInterface(),
+                        effective_address, loop_counter);
   }
   else
   {
-    MOV(32, R(ABI_PARAM1), R(effective_address));
-    ABI_CallFunction(JitInterface::InvalidateICacheLine);
+    ABI_CallFunctionPR(JitInterface::InvalidateICacheLineFromJIT, &m_system.GetJitInterface(),
+                       effective_address);
   }
   ABI_PopRegistersAndAdjustStack(registersInUse, 0);
   asm_routines.ResetStack(*this);
@@ -420,12 +422,12 @@ void Jit64::dcbz(UGeckoInstruction inst)
     end_dcbz_hack = J_CC(CC_L);
   }
 
-  bool emit_fast_path = MSR.DR && m_jit.jo.fastmem_arena;
+  bool emit_fast_path = m_ppc_state.msr.DR && m_jit.jo.fastmem_arena;
 
   if (emit_fast_path)
   {
     // Perform lookup to see if we can use fast path.
-    MOV(64, R(RSCRATCH2), ImmPtr(&PowerPC::dbat_table[0]));
+    MOV(64, R(RSCRATCH2), ImmPtr(m_mmu.GetDBATTable().data()));
     PUSH(RSCRATCH);
     SHR(32, R(RSCRATCH), Imm8(PowerPC::BAT_INDEX_SHIFT));
     TEST(32, MComplex(RSCRATCH2, RSCRATCH, SCALE_4, 0), Imm32(PowerPC::BAT_PHYSICAL_BIT));
@@ -444,7 +446,7 @@ void Jit64::dcbz(UGeckoInstruction inst)
   MOV(32, PPCSTATE(pc), Imm32(js.compilerPC));
   BitSet32 registersInUse = CallerSavedRegistersInUse();
   ABI_PushRegistersAndAdjustStack(registersInUse, 0);
-  ABI_CallFunctionR(PowerPC::ClearCacheLine, RSCRATCH);
+  ABI_CallFunctionPR(PowerPC::ClearDCacheLineFromJit64, &m_mmu, RSCRATCH);
   ABI_PopRegistersAndAdjustStack(registersInUse, 0);
 
   if (emit_fast_path)
@@ -505,10 +507,10 @@ void Jit64::stX(UGeckoInstruction inst)
       }
       else
       {
-        RCOpArg Ra = gpr.UseNoImm(a, RCMode::ReadWrite);
+        RCOpArg Ra = gpr.UseNoImm(a, RCMode::Write);
         RegCache::Realize(Ra);
         MemoryExceptionCheck();
-        ADD(32, Ra, Imm32((u32)offset));
+        MOV(32, Ra, Imm32(addr));
       }
     }
   }

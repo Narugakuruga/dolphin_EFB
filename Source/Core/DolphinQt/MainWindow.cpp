@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QDateTime>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDropEvent>
@@ -13,6 +14,7 @@
 #include <QIcon>
 #include <QMimeData>
 #include <QStackedWidget>
+#include <QStyleHints>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -36,6 +38,7 @@
 #include "Common/Version.h"
 #include "Common/WindowSystemInfo.h"
 
+#include "Core/AchievementManager.h"
 #include "Core/Boot/Boot.h"
 #include "Core/BootManager.h"
 #include "Core/CommonTitles.h"
@@ -61,6 +64,7 @@
 #include "Core/NetPlayProto.h"
 #include "Core/NetPlayServer.h"
 #include "Core/State.h"
+#include "Core/System.h"
 #include "Core/WiiUtils.h"
 
 #include "DiscIO/DirectoryBlob.h"
@@ -68,6 +72,7 @@
 #include "DiscIO/RiivolutionPatcher.h"
 
 #include "DolphinQt/AboutDialog.h"
+#include "DolphinQt/Achievements/AchievementsWindow.h"
 #include "DolphinQt/CheatsManager.h"
 #include "DolphinQt/Config/ControllersWindow.h"
 #include "DolphinQt/Config/FreeLookWindow.h"
@@ -91,6 +96,7 @@
 #include "DolphinQt/GameList/GameList.h"
 #include "DolphinQt/Host.h"
 #include "DolphinQt/HotkeyScheduler.h"
+#include "DolphinQt/InfinityBase/InfinityBaseWindow.h"
 #include "DolphinQt/MenuBar.h"
 #include "DolphinQt/NKitWarningDialog.h"
 #include "DolphinQt/NetPlay/NetPlayBrowser.h"
@@ -109,6 +115,8 @@
 #include "DolphinQt/RiivolutionBootWidget.h"
 #include "DolphinQt/SearchBar.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/SkylanderPortal/SkylanderPortalWindow.h"
+#include "DolphinQt/TAS/GBATASInputWindow.h"
 #include "DolphinQt/TAS/GCTASInputWindow.h"
 #include "DolphinQt/TAS/WiiTASInputWindow.h"
 #include "DolphinQt/ToolBar.h"
@@ -218,6 +226,11 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
 
   InitControllers();
 
+#ifdef USE_RETRO_ACHIEVEMENTS
+  // This has to be done before CreateComponents() so it's initialized.
+  AchievementManager::GetInstance()->Init();
+#endif  // USE_RETRO_ACHIEVEMENTS
+
   CreateComponents();
 
   ConnectGameList();
@@ -227,6 +240,13 @@ MainWindow::MainWindow(std::unique_ptr<BootParameters> boot_parameters,
   ConnectStack();
   ConnectMenuBar();
   ConnectHotkeys();
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 5, 0)
+  connect(QGuiApplication::styleHints(), &QStyleHints::colorSchemeChanged, this,
+          [](Qt::ColorScheme colorScheme) {
+            Settings::Instance().SetCurrentUserStyle(Settings::Instance().GetCurrentUserStyle());
+          });
+#endif
 
   connect(m_cheats_manager, &CheatsManager::OpenGeneralSettings, this,
           &MainWindow::ShowGeneralWindow);
@@ -297,12 +317,17 @@ MainWindow::~MainWindow()
   Settings::Instance().ResetNetPlayClient();
   Settings::Instance().ResetNetPlayServer();
 
+#ifdef USE_RETRO_ACHIEVEMENTS
+  AchievementManager::GetInstance()->Shutdown();
+#endif  // USE_RETRO_ACHIEVEMENTS
+
   delete m_render_widget;
   delete m_netplay_dialog;
 
   for (int i = 0; i < 4; i++)
   {
     delete m_gc_tas_input_windows[i];
+    delete m_gba_tas_input_windows[i];
     delete m_wii_tas_input_windows[i];
   }
 
@@ -402,6 +427,7 @@ void MainWindow::CreateComponents()
   for (int i = 0; i < 4; i++)
   {
     m_gc_tas_input_windows[i] = new GCTASInputWindow(nullptr, i);
+    m_gba_tas_input_windows[i] = new GBATASInputWindow(nullptr, i);
     m_wii_tas_input_windows[i] = new WiiTASInputWindow(nullptr, i);
   }
 
@@ -463,6 +489,7 @@ void MainWindow::CreateComponents()
   connect(m_breakpoint_widget, &BreakpointWidget::ShowMemory, m_memory_widget,
           &MemoryWidget::SetAddress);
   connect(m_cheats_manager, &CheatsManager::ShowMemory, m_memory_widget, &MemoryWidget::SetAddress);
+  connect(m_cheats_manager, &CheatsManager::RequestWatch, request_watch);
 }
 
 void MainWindow::ConnectMenuBar()
@@ -473,8 +500,7 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::Exit, this, &MainWindow::close);
   connect(m_menu_bar, &MenuBar::EjectDisc, this, &MainWindow::EjectDisc);
   connect(m_menu_bar, &MenuBar::ChangeDisc, this, &MainWindow::ChangeDisc);
-  connect(m_menu_bar, &MenuBar::BootDVDBackup, this,
-          [this](const QString& drive) { StartGame(drive, ScanForSecondDisc::No); });
+  connect(m_menu_bar, &MenuBar::OpenUserFolder, this, &MainWindow::OpenUserFolder);
 
   // Emulation
   connect(m_menu_bar, &MenuBar::Pause, this, &MainWindow::Pause);
@@ -515,7 +541,13 @@ void MainWindow::ConnectMenuBar()
   connect(m_menu_bar, &MenuBar::StartNetPlay, this, &MainWindow::ShowNetPlaySetupDialog);
   connect(m_menu_bar, &MenuBar::BrowseNetPlay, this, &MainWindow::ShowNetPlayBrowser);
   connect(m_menu_bar, &MenuBar::ShowFIFOPlayer, this, &MainWindow::ShowFIFOPlayer);
+  connect(m_menu_bar, &MenuBar::ShowSkylanderPortal, this, &MainWindow::ShowSkylanderPortal);
+  connect(m_menu_bar, &MenuBar::ShowInfinityBase, this, &MainWindow::ShowInfinityBase);
   connect(m_menu_bar, &MenuBar::ConnectWiiRemote, this, &MainWindow::OnConnectWiiRemote);
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+  connect(m_menu_bar, &MenuBar::ShowAchievementsWindow, this, &MainWindow::ShowAchievementsWindow);
+#endif  // USE_RETRO_ACHIEVEMENTS
 
   // Movie
   connect(m_menu_bar, &MenuBar::PlayRecording, this, &MainWindow::OnPlayRecording);
@@ -615,6 +647,11 @@ void MainWindow::ConnectHotkeys()
           &CodeWidget::ToggleBreakpoint);
   connect(m_hotkey_scheduler, &HotkeyScheduler::AddBreakpoint, m_code_widget,
           &CodeWidget::AddBreakpoint);
+
+  connect(m_hotkey_scheduler, &HotkeyScheduler::SkylandersPortalHotkey, this,
+          &MainWindow::ShowSkylanderPortal);
+  connect(m_hotkey_scheduler, &HotkeyScheduler::InfinityBaseHotkey, this,
+          &MainWindow::ShowInfinityBase);
 }
 
 void MainWindow::ConnectToolBar()
@@ -739,12 +776,22 @@ void MainWindow::ChangeDisc()
   std::vector<std::string> paths = StringListToStdVector(PromptFileNames());
 
   if (!paths.empty())
-    Core::RunAsCPUThread([&paths] { DVDInterface::ChangeDisc(paths); });
+    Core::RunAsCPUThread(
+        [&paths] { Core::System::GetInstance().GetDVDInterface().ChangeDisc(paths); });
 }
 
 void MainWindow::EjectDisc()
 {
-  Core::RunAsCPUThread([] { DVDInterface::EjectDisc(DVDInterface::EjectCause::User); });
+  Core::RunAsCPUThread(
+      [] { Core::System::GetInstance().GetDVDInterface().EjectDisc(DVD::EjectCause::User); });
+}
+
+void MainWindow::OpenUserFolder()
+{
+  std::string path = File::GetUserPath(D_USER_IDX);
+
+  QUrl url = QUrl::fromLocalFile(QString::fromStdString(path));
+  QDesktopServices::openUrl(url);
 }
 
 void MainWindow::Open()
@@ -939,7 +986,8 @@ void MainWindow::Reset()
 {
   if (Movie::IsRecordingInput())
     Movie::SetReset(true);
-  ProcessorInterface::ResetButton_Tap();
+  auto& system = Core::System::GetInstance();
+  system.GetProcessorInterface().ResetButton_Tap();
 }
 
 void MainWindow::FrameAdvance()
@@ -1246,10 +1294,8 @@ void MainWindow::ShowGraphicsWindow()
               "display", windowHandle())),
           winId());
     }
-    m_graphics_window = new GraphicsWindow(m_xrr_config.get(), this);
-#else
-    m_graphics_window = new GraphicsWindow(nullptr, this);
 #endif
+    m_graphics_window = new GraphicsWindow(this);
     InstallHotkeyFilter(m_graphics_window);
   }
 
@@ -1287,12 +1333,37 @@ void MainWindow::ShowFIFOPlayer()
   m_fifo_window->activateWindow();
 }
 
+void MainWindow::ShowSkylanderPortal()
+{
+  if (!m_skylander_window)
+  {
+    m_skylander_window = new SkylanderPortalWindow();
+  }
+
+  m_skylander_window->show();
+  m_skylander_window->raise();
+  m_skylander_window->activateWindow();
+}
+
+void MainWindow::ShowInfinityBase()
+{
+  if (!m_infinity_window)
+  {
+    m_infinity_window = new InfinityBaseWindow();
+  }
+
+  m_infinity_window->show();
+  m_infinity_window->raise();
+  m_infinity_window->activateWindow();
+}
+
 void MainWindow::StateLoad()
 {
   QString path =
       DolphinFileDialog::getOpenFileName(this, tr("Select a File"), QDir::currentPath(),
                                          tr("All Save States (*.sav *.s##);; All Files (*)"));
-  State::LoadAs(path.toStdString());
+  if (!path.isEmpty())
+    State::LoadAs(path.toStdString());
 }
 
 void MainWindow::StateSave()
@@ -1300,7 +1371,8 @@ void MainWindow::StateSave()
   QString path =
       DolphinFileDialog::getSaveFileName(this, tr("Select a File"), QDir::currentPath(),
                                          tr("All Save States (*.sav *.s##);; All Files (*)"));
-  State::SaveAs(path.toStdString());
+  if (!path.isEmpty())
+    State::SaveAs(path.toStdString());
 }
 
 void MainWindow::StateLoadSlot()
@@ -1355,7 +1427,7 @@ void MainWindow::SetStateSlot(int slot)
 
 void MainWindow::IncrementSelectedStateSlot()
 {
-  int state_slot = m_state_slot + 1;
+  u32 state_slot = m_state_slot + 1;
   if (state_slot > State::NUM_STATES)
     state_slot = 1;
   m_menu_bar->SetStateSlot(state_slot);
@@ -1363,7 +1435,7 @@ void MainWindow::IncrementSelectedStateSlot()
 
 void MainWindow::DecrementSelectedStateSlot()
 {
-  int state_slot = m_state_slot - 1;
+  u32 state_slot = m_state_slot - 1;
   if (state_slot < 1)
     state_slot = State::NUM_STATES;
   m_menu_bar->SetStateSlot(state_slot);
@@ -1787,8 +1859,14 @@ void MainWindow::ShowTASInput()
   for (int i = 0; i < num_gc_controllers; i++)
   {
     const auto si_device = Config::Get(Config::GetInfoForSIDevice(i));
-    if (si_device != SerialInterface::SIDEVICE_NONE &&
-        si_device != SerialInterface::SIDEVICE_GC_GBA)
+    if (si_device == SerialInterface::SIDEVICE_GC_GBA_EMULATED)
+    {
+      m_gba_tas_input_windows[i]->show();
+      m_gba_tas_input_windows[i]->raise();
+      m_gba_tas_input_windows[i]->activateWindow();
+    }
+    else if (si_device != SerialInterface::SIDEVICE_NONE &&
+             si_device != SerialInterface::SIDEVICE_GC_GBA)
     {
       m_gc_tas_input_windows[i]->show();
       m_gc_tas_input_windows[i]->raise();
@@ -1818,6 +1896,20 @@ void MainWindow::OnConnectWiiRemote(int id)
     }
   });
 }
+
+#ifdef USE_RETRO_ACHIEVEMENTS
+void MainWindow::ShowAchievementsWindow()
+{
+  if (!m_achievements_window)
+  {
+    m_achievements_window = new AchievementsWindow(this);
+  }
+
+  m_achievements_window->show();
+  m_achievements_window->raise();
+  m_achievements_window->activateWindow();
+}
+#endif  // USE_RETRO_ACHIEVEMENTS
 
 void MainWindow::ShowMemcardManager()
 {

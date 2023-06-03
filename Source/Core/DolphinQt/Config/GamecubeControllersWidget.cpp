@@ -19,6 +19,7 @@
 #include "Core/HW/SI/SI.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/NetPlayProto.h"
+#include "Core/System.h"
 
 #include "DolphinQt/Config/Mapping/GCPadWiiUConfigDialog.h"
 #include "DolphinQt/Config/Mapping/MappingWindow.h"
@@ -40,7 +41,7 @@ static constexpr std::array s_gc_types = {
     SIDeviceName{SerialInterface::SIDEVICE_GC_GBA_EMULATED, _trans("GBA (Integrated)")},
 #endif
     SIDeviceName{SerialInterface::SIDEVICE_GC_GBA, _trans("GBA (TCP)")},
-    SIDeviceName{SerialInterface::SIDEVICE_GC_KEYBOARD, _trans("Keyboard")},
+    SIDeviceName{SerialInterface::SIDEVICE_GC_KEYBOARD, _trans("Keyboard Controller")},
 };
 
 static std::optional<int> ToGCMenuIndex(const SerialInterface::SIDevices sidevice)
@@ -192,7 +193,10 @@ void GamecubeControllersWidget::SaveSettings()
       Config::SetBaseOrCurrent(Config::GetInfoForSIDevice(static_cast<int>(i)), si_device);
 
       if (Core::IsRunning())
-        SerialInterface::ChangeDevice(si_device, static_cast<s32>(i));
+      {
+        Core::System::GetInstance().GetSerialInterface().ChangeDevice(si_device,
+                                                                      static_cast<s32>(i));
+      }
     }
 
     if (GCAdapter::UseAdapter())

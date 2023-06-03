@@ -23,6 +23,7 @@
 
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
+#include "Core/System.h"
 
 #include "DolphinQt/Config/SettingsWindow.h"
 #include "DolphinQt/Settings.h"
@@ -246,8 +247,10 @@ void AudioPane::LoadSettings()
 
   // Stretch
   m_stretching_enable->setChecked(Config::Get(Config::MAIN_AUDIO_STRETCH));
+  m_stretching_buffer_label->setEnabled(m_stretching_enable->isChecked());
   m_stretching_buffer_slider->setValue(Config::Get(Config::MAIN_AUDIO_STRETCH_LATENCY));
   m_stretching_buffer_slider->setEnabled(m_stretching_enable->isChecked());
+  m_stretching_buffer_indicator->setEnabled(m_stretching_enable->isChecked());
   m_stretching_buffer_indicator->setText(tr("%1 ms").arg(m_stretching_buffer_slider->value()));
 
 #ifdef _WIN32
@@ -328,7 +331,7 @@ void AudioPane::SaveSettings()
   Config::SetBaseOrCurrent(Config::MAIN_WASAPI_DEVICE, device);
 #endif
 
-  AudioCommon::UpdateSoundStream();
+  AudioCommon::UpdateSoundStream(Core::System::GetInstance());
 }
 
 void AudioPane::OnDspChanged()

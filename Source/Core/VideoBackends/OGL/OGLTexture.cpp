@@ -7,6 +7,8 @@
 #include "Common/CommonTypes.h"
 #include "Common/MsgHandler.h"
 
+#include "VideoBackends/OGL/OGLConfig.h"
+#include "VideoBackends/OGL/OGLGfx.h"
 #include "VideoBackends/OGL/SamplerCache.h"
 
 #include "VideoCommon/VideoConfig.h"
@@ -128,12 +130,18 @@ OGLTexture::OGLTexture(const TextureConfig& tex_config, std::string_view name)
   GLenum gl_internal_format = GetGLInternalFormatForTextureFormat(m_config.format, true);
   if (tex_config.IsMultisampled())
   {
-    if (g_ogl_config.bSupportsTextureStorage)
+    ASSERT(g_ogl_config.bSupportsMSAA);
+    if (g_ogl_config.SupportedMultisampleTexStorage != MultisampleTexStorageType::TexStorageNone)
+    {
       glTexStorage3DMultisample(target, tex_config.samples, gl_internal_format, m_config.width,
                                 m_config.height, m_config.layers, GL_FALSE);
+    }
     else
+    {
+      ASSERT(!g_ogl_config.bIsES);
       glTexImage3DMultisample(target, tex_config.samples, gl_internal_format, m_config.width,
                               m_config.height, m_config.layers, GL_FALSE);
+    }
   }
   else if (g_ogl_config.bSupportsTextureStorage)
   {
@@ -160,7 +168,7 @@ OGLTexture::OGLTexture(const TextureConfig& tex_config, std::string_view name)
 
 OGLTexture::~OGLTexture()
 {
-  Renderer::GetInstance()->UnbindTexture(this);
+  GetOGLGfx()->UnbindTexture(this);
   glDeleteTextures(1, &m_texId);
 }
 
@@ -190,10 +198,10 @@ void OGLTexture::BlitFramebuffer(OGLTexture* srcentry, const MathUtil::Rectangle
                                  const MathUtil::Rectangle<int>& dst_rect, u32 dst_layer,
                                  u32 dst_level)
 {
-  Renderer::GetInstance()->BindSharedReadFramebuffer();
+  GetOGLGfx()->BindSharedReadFramebuffer();
   glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, srcentry->m_texId, src_level,
                             src_layer);
-  Renderer::GetInstance()->BindSharedDrawFramebuffer();
+  GetOGLGfx()->BindSharedDrawFramebuffer();
   glFramebufferTextureLayer(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, m_texId, dst_level,
                             dst_layer);
 
@@ -206,7 +214,7 @@ void OGLTexture::BlitFramebuffer(OGLTexture* srcentry, const MathUtil::Rectangle
   // The default state for the scissor test is enabled. We don't need to do a full state
   // restore, as the framebuffer and scissor test are the only things we changed.
   glEnable(GL_SCISSOR_TEST);
-  Renderer::GetInstance()->RestoreFramebufferBinding();
+  GetOGLGfx()->RestoreFramebufferBinding();
 }
 
 void OGLTexture::ResolveFromTexture(const AbstractTexture* src,
@@ -221,10 +229,13 @@ void OGLTexture::ResolveFromTexture(const AbstractTexture* src,
 }
 
 void OGLTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8* buffer,
-                      size_t buffer_size)
+                      size_t buffer_size, u32 layer)
 {
   if (level >= m_config.levels)
     PanicAlertFmt("Texture only has {} levels, can't update level {}", m_config.levels, level);
+
+  if (layer >= m_config.layers)
+    PanicAlertFmt("Texture only has {} layer, can't update layer {}", m_config.layers, layer);
 
   const auto expected_width = std::max(1U, m_config.width >> level);
   const auto expected_height = std::max(1U, m_config.height >> level);
@@ -246,7 +257,7 @@ void OGLTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8
   {
     if (g_ogl_config.bSupportsTextureStorage)
     {
-      glCompressedTexSubImage3D(target, level, 0, 0, 0, width, height, 1, gl_internal_format,
+      glCompressedTexSubImage3D(target, level, 0, 0, layer, width, height, 1, gl_internal_format,
                                 static_cast<GLsizei>(buffer_size), buffer);
     }
     else
@@ -261,7 +272,7 @@ void OGLTexture::Load(u32 level, u32 width, u32 height, u32 row_length, const u8
     GLenum gl_type = GetGLTypeForTextureFormat(m_config.format);
     if (g_ogl_config.bSupportsTextureStorage)
     {
-      glTexSubImage3D(target, level, 0, 0, 0, width, height, 1, gl_format, gl_type, buffer);
+      glTexSubImage3D(target, level, 0, 0, layer, width, height, 1, gl_format, gl_type, buffer);
     }
     else
     {
@@ -291,7 +302,7 @@ OGLStagingTexture::OGLStagingTexture(StagingTextureType type, const TextureConfi
 
 OGLStagingTexture::~OGLStagingTexture()
 {
-  if (m_fence != 0)
+  if (m_fence != nullptr)
     glDeleteSync(m_fence);
   if (m_map_pointer)
   {
@@ -388,7 +399,7 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
   else
   {
     // Mutate the shared framebuffer.
-    Renderer::GetInstance()->BindSharedReadFramebuffer();
+    GetOGLGfx()->BindSharedReadFramebuffer();
     if (AbstractTexture::IsDepthFormat(gltex->GetFormat()))
     {
       glFramebufferTextureLayer(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, 0, 0, 0);
@@ -404,7 +415,7 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
     glReadPixels(src_rect.left, src_rect.top, src_rect.GetWidth(), src_rect.GetHeight(),
                  GetGLFormatForTextureFormat(src->GetFormat()),
                  GetGLTypeForTextureFormat(src->GetFormat()), reinterpret_cast<void*>(dst_offset));
-    Renderer::GetInstance()->RestoreFramebufferBinding();
+    GetOGLGfx()->RestoreFramebufferBinding();
   }
 
   glPixelStorei(GL_PACK_ROW_LENGTH, 0);
@@ -413,7 +424,7 @@ void OGLStagingTexture::CopyFromTexture(const AbstractTexture* src,
   // If we support buffer storage, create a fence for synchronization.
   if (UsePersistentStagingBuffers())
   {
-    if (m_fence != 0)
+    if (m_fence != nullptr)
       glDeleteSync(m_fence);
 
     glMemoryBarrier(GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
@@ -474,7 +485,7 @@ void OGLStagingTexture::CopyToTexture(const MathUtil::Rectangle<int>& src_rect,
   // If we support buffer storage, create a fence for synchronization.
   if (UsePersistentStagingBuffers())
   {
-    if (m_fence != 0)
+    if (m_fence != nullptr)
       glDeleteSync(m_fence);
 
     m_fence = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
@@ -488,7 +499,7 @@ void OGLStagingTexture::Flush()
 {
   // No-op when not using buffer storage, as the transfers happen on Map().
   // m_fence will always be zero in this case.
-  if (m_fence == 0)
+  if (m_fence == nullptr)
   {
     m_needs_flush = false;
     return;
@@ -496,7 +507,7 @@ void OGLStagingTexture::Flush()
 
   glClientWaitSync(m_fence, 0, GL_TIMEOUT_IGNORED);
   glDeleteSync(m_fence);
-  m_fence = 0;
+  m_fence = nullptr;
   m_needs_flush = false;
 }
 
@@ -597,7 +608,7 @@ std::unique_ptr<OGLFramebuffer> OGLFramebuffer::Create(OGLTexture* color_attachm
   }
 
   DEBUG_ASSERT(glCheckFramebufferStatus(GL_FRAMEBUFFER) == GL_FRAMEBUFFER_COMPLETE);
-  Renderer::GetInstance()->RestoreFramebufferBinding();
+  GetOGLGfx()->RestoreFramebufferBinding();
 
   return std::make_unique<OGLFramebuffer>(color_attachment, depth_attachment, color_format,
                                           depth_format, width, height, layers, samples, fbo);

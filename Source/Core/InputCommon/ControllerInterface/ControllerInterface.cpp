@@ -16,7 +16,6 @@
 #include "InputCommon/ControllerInterface/Xlib/XInput2.h"
 #endif
 #ifdef CIFACE_USE_OSX
-#include "InputCommon/ControllerInterface/OSX/OSX.h"
 #include "InputCommon/ControllerInterface/Quartz/Quartz.h"
 #endif
 #ifdef CIFACE_USE_SDL
@@ -33,6 +32,9 @@
 #endif
 #ifdef CIFACE_USE_DUALSHOCKUDPCLIENT
 #include "InputCommon/ControllerInterface/DualShockUDPClient/DualShockUDPClient.h"
+#endif
+#ifdef CIFACE_USE_STEAMDECK
+#include "InputCommon/ControllerInterface/SteamDeck/SteamDeck.h"
 #endif
 
 ControllerInterface g_controller_interface;
@@ -61,13 +63,13 @@ void ControllerInterface::Initialize(const WindowSystemInfo& wsi)
 // nothing needed
 #endif
 #ifdef CIFACE_USE_OSX
-// nothing needed for OSX and Quartz
+// nothing needed for Quartz
 #endif
 #ifdef CIFACE_USE_SDL
   m_input_backends.emplace_back(ciface::SDL::CreateInputBackend(this));
 #endif
 #ifdef CIFACE_USE_ANDROID
-// nothing needed
+  ciface::Android::Init();
 #endif
 #ifdef CIFACE_USE_EVDEV
   m_input_backends.emplace_back(ciface::evdev::CreateInputBackend(this));
@@ -77,6 +79,9 @@ void ControllerInterface::Initialize(const WindowSystemInfo& wsi)
 #endif
 #ifdef CIFACE_USE_DUALSHOCKUDPCLIENT
   m_input_backends.emplace_back(ciface::DualShockUDPClient::CreateInputBackend(this));
+#endif
+#ifdef CIFACE_USE_STEAMDECK
+  m_input_backends.emplace_back(ciface::SteamDeck::CreateInputBackend(this));
 #endif
 
   // Don't allow backends to add devices before the first RefreshDevices() as they will be cleaned
@@ -113,18 +118,6 @@ void ControllerInterface::RefreshDevices(RefreshReason reason)
 {
   if (!m_is_init)
     return;
-
-#ifdef CIFACE_USE_OSX
-  if (m_wsi.type == WindowSystemType::MacOS)
-  {
-    std::lock_guard lk_pre_population(m_pre_population_mutex);
-    // This is needed to stop its threads before locking our mutexes, to avoid deadlocks
-    // (in case it tried to add a device after we had locked m_devices_population_mutex).
-    // There doesn't seem to be an easy to way to repopulate OSX devices without restarting its
-    // hotplug thread. This should not remove its devices, and if it did, calls should be ignored.
-    ciface::OSX::DeInit();
-  }
-#endif
 
   // We lock m_devices_population_mutex here to make everything simpler.
   // Multiple devices classes have their own "hotplug" thread, and can add/remove devices at any
@@ -174,10 +167,6 @@ void ControllerInterface::RefreshDevices(RefreshReason reason)
 #ifdef CIFACE_USE_OSX
   if (m_wsi.type == WindowSystemType::MacOS)
   {
-    {
-      std::lock_guard lk_pre_population(m_pre_population_mutex);
-      ciface::OSX::Init();
-    }
     ciface::Quartz::PopulateDevices(m_wsi.render_window);
   }
 #endif
@@ -233,11 +222,10 @@ void ControllerInterface::Shutdown()
 // nothing needed
 #endif
 #ifdef CIFACE_USE_OSX
-  ciface::OSX::DeInit();
   ciface::Quartz::DeInit();
 #endif
 #ifdef CIFACE_USE_ANDROID
-// nothing needed
+  ciface::Android::Shutdown();
 #endif
 
   // Empty the container of input backends to deconstruct and deinitialize them.
@@ -372,6 +360,14 @@ void ControllerInterface::UpdateInput()
 
   // TODO: if we are an emulation input channel, we should probably always lock
   // Prefer outdated values over blocking UI or CPU thread (avoids short but noticeable frame drop)
+
+  // Lock this first to avoid deadlock with m_devices_mutex in certain cases (such as a Wii Remote
+  // getting disconnected)
+  if (!m_devices_population_mutex.try_lock())
+    return;
+
+  std::lock_guard population_lock(m_devices_population_mutex, std::adopt_lock);
+
   if (!m_devices_mutex.try_lock())
     return;
 

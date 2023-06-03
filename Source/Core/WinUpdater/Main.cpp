@@ -31,12 +31,22 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
   // Test for write permissions
   bool need_admin = false;
 
-  FILE* test_fh = fopen("Updater.log", "w");
+  auto path = Common::GetModuleName(hInstance);
+  if (!path)
+  {
+    UI::Error("Failed to get updater filename.");
+    return 1;
+  }
 
-  if (test_fh == nullptr)
+  const auto test_fh = ::CreateFileW(
+      (std::filesystem::path(*path).parent_path() / "directory_writable_check.tmp").c_str(),
+      GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+      FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, nullptr);
+
+  if (test_fh == INVALID_HANDLE_VALUE)
     need_admin = true;
   else
-    fclose(test_fh);
+    CloseHandle(test_fh);
 
   if (need_admin)
   {
@@ -47,19 +57,12 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, PWSTR pCmdLine
       return 1;
     }
 
-    auto path = GetModuleName(hInstance);
-    if (!path)
-    {
-      MessageBox(nullptr, L"Failed to get updater filename.", L"Error", MB_ICONERROR);
-      return 1;
-    }
-
     // Relaunch the updater as administrator
-    ShellExecuteW(nullptr, L"runas", path->c_str(), pCmdLine, NULL, SW_SHOW);
+    ShellExecuteW(nullptr, L"runas", path->c_str(), pCmdLine, nullptr, SW_SHOW);
     return 0;
   }
 
-  std::vector<std::string> args = CommandLineToUtf8Argv(pCmdLine);
+  std::vector<std::string> args = Common::CommandLineToUtf8Argv(pCmdLine);
 
   return RunUpdater(args) ? 0 : 1;
 }

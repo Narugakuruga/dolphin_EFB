@@ -13,6 +13,7 @@
 #include "Core/PowerPC/Interpreter/ExceptionUtils.h"
 #include "Core/PowerPC/PPCTables.h"
 #include "Core/PowerPC/PowerPC.h"
+#include "Core/System.h"
 
 using namespace Arm64Gen;
 
@@ -59,13 +60,13 @@ void JitArm64::UpdateFPExceptionSummary(ARM64Reg fpscr)
   MOVI2R(WA, FPSCR_VX_ANY);
   TST(WA, fpscr);
   CSET(WA, CCFlags::CC_NEQ);
-  BFI(fpscr, WA, IntLog2(FPSCR_VX), 1);
+  BFI(fpscr, WA, MathUtil::IntLog2(FPSCR_VX), 1);
 
   // fpscr.FEX = ((fpscr >> 22) & (fpscr & FPSCR_ANY_E)) != 0
   AND(WA, fpscr, LogicalImm(FPSCR_ANY_E, 32));
   TST(WA, fpscr, ArithOption(fpscr, ShiftType::LSR, 22));
   CSET(WA, CCFlags::CC_NEQ);
-  BFI(fpscr, WA, IntLog2(FPSCR_FEX), 1);
+  BFI(fpscr, WA, MathUtil::IntLog2(FPSCR_FEX), 1);
 
   gpr.Unlock(WA);
 }
@@ -77,6 +78,7 @@ void JitArm64::UpdateRoundingMode()
 
   ABI_PushRegisters(gprs_to_save);
   m_float_emit.ABI_PushRegisters(fprs_to_save, ARM64Reg::X8);
+  MOVP2R(ARM64Reg::X0, &m_ppc_state);
   MOVP2R(ARM64Reg::X8, &PowerPC::RoundingModeUpdated);
   BLR(ARM64Reg::X8);
   m_float_emit.ABI_PopRegisters(fprs_to_save, ARM64Reg::X8);
@@ -306,7 +308,8 @@ void JitArm64::mfspr(UGeckoInstruction inst)
     // An inline implementation of CoreTiming::GetFakeTimeBase, since in timer-heavy games the
     // cost of calling out to C for this is actually significant.
 
-    MOVP2R(Xg, &CoreTiming::g);
+    auto& core_timing_globals = m_system.GetCoreTiming().GetGlobals();
+    MOVP2R(Xg, &core_timing_globals);
 
     LDR(IndexType::Unsigned, WA, PPC_REG, PPCSTATE_OFF(downcount));
     m_float_emit.SCVTF(SC, WA);
@@ -393,6 +396,15 @@ void JitArm64::mfspr(UGeckoInstruction inst)
   break;
   case SPR_WPAR:
   case SPR_DEC:
+  case SPR_PMC1:
+  case SPR_PMC2:
+  case SPR_PMC3:
+  case SPR_PMC4:
+  case SPR_UPMC1:
+  case SPR_UPMC2:
+  case SPR_UPMC3:
+  case SPR_UPMC4:
+  case SPR_IABR:
     FALLBACK_IF(true);
   default:
     gpr.BindToRegister(d, false);

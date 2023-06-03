@@ -33,6 +33,7 @@
 #include "Core/HW/SI/SI.h"
 #include "Core/HW/SI/SI_Device.h"
 #include "Core/HW/SystemTimers.h"
+#include "Core/System.h"
 #include "InputCommon/GCPadStatus.h"
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
@@ -419,10 +420,12 @@ void Init()
 
   if (Core::GetState() != Core::State::Uninitialized && Core::GetState() != Core::State::Starting)
   {
-    if ((CoreTiming::GetTicks() - s_last_init) < SystemTimers::GetTicksPerSecond())
+    auto& system = Core::System::GetInstance();
+    auto& core_timing = system.GetCoreTiming();
+    if ((core_timing.GetTicks() - s_last_init) < SystemTimers::GetTicksPerSecond())
       return;
 
-    s_last_init = CoreTiming::GetTicks();
+    s_last_init = core_timing.GetTicks();
   }
 
 #if GCADAPTER_USE_LIBUSB_IMPLEMENTATION
@@ -749,7 +752,7 @@ GCPadStatus Input(int chan)
 }
 
 // Get ControllerType from first byte in input payload.
-ControllerType IdentifyControllerType(u8 data)
+static ControllerType IdentifyControllerType(u8 data)
 {
   if (Common::ExtractBit<4>(data))
     return ControllerType::Wired;

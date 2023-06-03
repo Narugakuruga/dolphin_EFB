@@ -3,7 +3,6 @@
 package org.dolphinemu.dolphinemu.fragments;
 
 import android.content.pm.PackageManager;
-import android.graphics.Rect;
 import android.os.Bundle;
 import android.util.SparseIntArray;
 import android.view.LayoutInflater;
@@ -12,21 +11,33 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
 
+import androidx.annotation.ColorInt;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+
+import com.google.android.material.color.MaterialColors;
+import com.google.android.material.elevation.ElevationOverlayProvider;
 
 import org.dolphinemu.dolphinemu.NativeLibrary;
 import org.dolphinemu.dolphinemu.R;
 import org.dolphinemu.dolphinemu.activities.EmulationActivity;
 import org.dolphinemu.dolphinemu.databinding.FragmentIngameMenuBinding;
 import org.dolphinemu.dolphinemu.features.settings.model.BooleanSetting;
+import org.dolphinemu.dolphinemu.features.settings.model.IntSetting;
+import org.dolphinemu.dolphinemu.utils.InsetsHelper;
+import org.dolphinemu.dolphinemu.utils.ThemeHelper;
 
 public final class MenuFragment extends Fragment implements View.OnClickListener
 {
   private static final String KEY_TITLE = "title";
   private static final String KEY_WII = "wii";
   private static SparseIntArray buttonsActionsMap = new SparseIntArray();
+
+  private int mCutInset = 0;
 
   static
   {
@@ -49,6 +60,8 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     buttonsActionsMap.append(R.id.menu_change_disc, EmulationActivity.MENU_ACTION_CHANGE_DISC);
     buttonsActionsMap.append(R.id.menu_exit, EmulationActivity.MENU_ACTION_EXIT);
     buttonsActionsMap.append(R.id.menu_settings, EmulationActivity.MENU_ACTION_SETTINGS);
+    buttonsActionsMap.append(R.id.menu_skylanders, EmulationActivity.MENU_ACTION_SKYLANDERS);
+    buttonsActionsMap.append(R.id.menu_infinitybase, EmulationActivity.MENU_ACTION_INFINITY_BASE);
   }
 
   private FragmentIngameMenuBinding mBinding;
@@ -68,14 +81,6 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     return fragment;
   }
 
-  // This is primarily intended to account for any navigation bar at the bottom of the screen
-  private int getBottomPaddingRequired()
-  {
-    Rect visibleFrame = new Rect();
-    requireActivity().getWindow().getDecorView().getWindowVisibleDisplayFrame(visibleFrame);
-    return visibleFrame.bottom - visibleFrame.top - getResources().getDisplayMetrics().heightPixels;
-  }
-
   @NonNull
   @Override
   public View onCreateView(@NonNull LayoutInflater inflater, ViewGroup container,
@@ -88,6 +93,15 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
   @Override
   public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState)
   {
+    if (IntSetting.MAIN_INTERFACE_THEME.getInt() != ThemeHelper.DEFAULT)
+    {
+      @ColorInt int color = new ElevationOverlayProvider(view.getContext()).compositeOverlay(
+              MaterialColors.getColor(view, R.attr.colorSurface),
+              view.getElevation());
+      view.setBackgroundColor(color);
+    }
+
+    setInsets();
     updatePauseUnpauseVisibility();
 
     if (!requireActivity().getPackageManager().hasSystemFeature(PackageManager.FEATURE_TOUCHSCREEN))
@@ -98,21 +112,12 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     if (!getArguments().getBoolean(KEY_WII, true))
     {
       mBinding.menuRefreshWiimotes.setVisibility(View.GONE);
+      mBinding.menuSkylanders.setVisibility(View.GONE);
     }
 
-    int bottomPaddingRequired = getBottomPaddingRequired();
-
-    // Provide a safe zone between the navigation bar and Exit Emulation to avoid accidental touches
-    float density = getResources().getDisplayMetrics().density;
-    if (bottomPaddingRequired >= 32 * density)
+    if (!BooleanSetting.MAIN_EMULATE_SKYLANDER_PORTAL.getBoolean())
     {
-      bottomPaddingRequired += 32 * density;
-    }
-
-    if (bottomPaddingRequired > view.getPaddingBottom())
-    {
-      view.setPadding(view.getPaddingLeft(), view.getPaddingTop(),
-              view.getPaddingRight(), bottomPaddingRequired);
+      mBinding.menuSkylanders.setVisibility(View.GONE);
     }
 
     LinearLayout options = mBinding.layoutOptions;
@@ -130,11 +135,41 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
     {
       mBinding.textGameTitle.setText(title);
     }
+  }
 
-    if (getResources().getConfiguration().getLayoutDirection() == View.LAYOUT_DIRECTION_LTR)
+  private void setInsets()
+  {
+    ViewCompat.setOnApplyWindowInsetsListener(mBinding.getRoot(), (v, windowInsets) ->
     {
-      view.post(() -> NativeLibrary.SetObscuredPixelsLeft(view.getWidth()));
-    }
+      Insets cutInsets = windowInsets.getInsets(WindowInsetsCompat.Type.displayCutout());
+      mCutInset = cutInsets.left;
+
+      int left = 0;
+      int right = 0;
+      if (ViewCompat.getLayoutDirection(v) == ViewCompat.LAYOUT_DIRECTION_LTR)
+      {
+        left = cutInsets.left;
+      }
+      else
+      {
+        right = cutInsets.right;
+      }
+
+      v.post(() -> NativeLibrary.SetObscuredPixelsLeft(v.getWidth()));
+
+      // Don't use padding if the navigation bar isn't in the way
+      if (InsetsHelper.getBottomPaddingRequired(requireActivity()) > 0)
+      {
+        v.setPadding(left, cutInsets.top, right,
+                cutInsets.bottom + InsetsHelper.getNavigationBarHeight(requireContext()));
+      }
+      else
+      {
+        v.setPadding(left, cutInsets.top, right,
+                cutInsets.bottom + getResources().getDimensionPixelSize(R.dimen.spacing_large));
+      }
+      return windowInsets;
+    });
   }
 
   @Override
@@ -142,7 +177,7 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
   {
     super.onResume();
 
-    boolean savestatesEnabled = BooleanSetting.MAIN_ENABLE_SAVESTATES.getBooleanGlobal();
+    boolean savestatesEnabled = BooleanSetting.MAIN_ENABLE_SAVESTATES.getBoolean();
     int savestateVisibility = savestatesEnabled ? View.VISIBLE : View.GONE;
     mBinding.menuQuicksave.setVisibility(savestateVisibility);
     mBinding.menuQuickload.setVisibility(savestateVisibility);
@@ -155,7 +190,7 @@ public final class MenuFragment extends Fragment implements View.OnClickListener
   {
     super.onDestroyView();
 
-    NativeLibrary.SetObscuredPixelsLeft(0);
+    NativeLibrary.SetObscuredPixelsLeft(mCutInset);
     mBinding = null;
   }
 

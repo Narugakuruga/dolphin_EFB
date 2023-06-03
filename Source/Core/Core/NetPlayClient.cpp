@@ -23,7 +23,7 @@
 #include "Common/CommonPaths.h"
 #include "Common/CommonTypes.h"
 #include "Common/Crypto/SHA1.h"
-#include "Common/ENetUtil.h"
+#include "Common/ENet.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
 #include "Common/MsgHandler.h"
@@ -67,6 +67,7 @@
 #include "Core/NetPlayCommon.h"
 #include "Core/PowerPC/PowerPC.h"
 #include "Core/SyncIdentifier.h"
+#include "Core/System.h"
 #include "DiscIO/Blob.h"
 
 #include "InputCommon/ControllerEmu/ControlGroup/Attachments.h"
@@ -109,9 +110,9 @@ NetPlayClient::~NetPlayClient()
     Disconnect();
   }
 
-  if (g_MainNetHost.get() == m_client)
+  if (Common::g_MainNetHost.get() == m_client)
   {
-    g_MainNetHost.release();
+    Common::g_MainNetHost.release();
   }
   if (m_client)
   {
@@ -121,7 +122,7 @@ NetPlayClient::~NetPlayClient()
 
   if (m_traversal_client)
   {
-    ReleaseTraversalClient();
+    Common::ReleaseTraversalClient();
   }
 }
 
@@ -142,6 +143,8 @@ NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlay
       m_dialog->OnConnectionError(_trans("Could not create client."));
       return;
     }
+
+    m_client->mtu = std::min(m_client->mtu, NetPlay::MAX_ENET_MTU);
 
     ENetAddress addr;
     enet_address_set_host(&addr, address.c_str());
@@ -165,7 +168,7 @@ NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlay
     {
       if (Connect())
       {
-        m_client->intercept = ENetUtil::InterceptCallback;
+        m_client->intercept = Common::ENet::InterceptCallback;
         m_thread = std::thread(&NetPlayClient::ThreadFunc, this);
       }
     }
@@ -176,18 +179,21 @@ NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlay
   }
   else
   {
-    if (address.size() > NETPLAY_CODE_SIZE)
+    if (address.size() > Common::NETPLAY_CODE_SIZE)
     {
       m_dialog->OnConnectionError(
           _trans("The host code is too long.\nPlease recheck that you have the correct code."));
       return;
     }
 
-    if (!EnsureTraversalClient(traversal_config.traversal_host, traversal_config.traversal_port))
+    if (!Common::EnsureTraversalClient(traversal_config.traversal_host,
+                                       traversal_config.traversal_port))
+    {
       return;
-    m_client = g_MainNetHost.get();
+    }
+    m_client = Common::g_MainNetHost.get();
 
-    m_traversal_client = g_TraversalClient.get();
+    m_traversal_client = Common::g_TraversalClient.get();
 
     // If we were disconnected in the background, reconnect.
     if (m_traversal_client->HasFailed())
@@ -238,6 +244,8 @@ NetPlayClient::NetPlayClient(const std::string& address, const u16 port, NetPlay
 
 bool NetPlayClient::Connect()
 {
+  INFO_LOG_FMT(NETPLAY, "Connecting to server.");
+
   // send connect message
   sf::Packet packet;
   packet << Common::GetScmRevGitStr();
@@ -248,7 +256,13 @@ bool NetPlayClient::Connect()
   sf::Packet rpac;
   // TODO: make this not hang
   ENetEvent netEvent;
-  if (enet_host_service(m_client, &netEvent, 5000) > 0 && netEvent.type == ENET_EVENT_TYPE_RECEIVE)
+  int net;
+  while ((net = enet_host_service(m_client, &netEvent, 5000)) > 0 &&
+         netEvent.type == ENetEventType(42))  // See PR #11381 and ENetUtil::InterceptCallback
+  {
+    // ignore packets from traversal server
+  }
+  if (net > 0 && netEvent.type == ENET_EVENT_TYPE_RECEIVE)
   {
     rpac.append(netEvent.packet->data, netEvent.packet->dataLength);
     enet_packet_destroy(netEvent.packet);
@@ -535,6 +549,8 @@ void NetPlayClient::OnChunkedDataStart(sf::Packet& packet)
   packet >> title;
   const u64 data_size = Common::PacketReadU64(packet);
 
+  INFO_LOG_FMT(NETPLAY, "Starting data chunk {}.", cid);
+
   m_chunked_data_receive_queue.emplace(cid, sf::Packet{});
 
   std::vector<int> players;
@@ -549,7 +565,12 @@ void NetPlayClient::OnChunkedDataEnd(sf::Packet& packet)
 
   const auto data_packet_iter = m_chunked_data_receive_queue.find(cid);
   if (data_packet_iter == m_chunked_data_receive_queue.end())
+  {
+    INFO_LOG_FMT(NETPLAY, "Invalid data chunk ID {}.", cid);
     return;
+  }
+
+  INFO_LOG_FMT(NETPLAY, "Ending data chunk {}.", cid);
 
   auto& data_packet = data_packet_iter->second;
   OnData(data_packet);
@@ -569,7 +590,10 @@ void NetPlayClient::OnChunkedDataPayload(sf::Packet& packet)
 
   const auto data_packet_iter = m_chunked_data_receive_queue.find(cid);
   if (data_packet_iter == m_chunked_data_receive_queue.end())
+  {
+    INFO_LOG_FMT(NETPLAY, "Invalid data chunk ID {}.", cid);
     return;
+  }
 
   auto& data_packet = data_packet_iter->second;
   while (!packet.endOfPacket())
@@ -578,6 +602,8 @@ void NetPlayClient::OnChunkedDataPayload(sf::Packet& packet)
     packet >> byte;
     data_packet << byte;
   }
+
+  INFO_LOG_FMT(NETPLAY, "Received {} bytes of data chunk {}.", data_packet.getDataSize(), cid);
 
   m_dialog->SetChunkedProgress(m_local_player->pid, data_packet.getDataSize());
 
@@ -595,7 +621,12 @@ void NetPlayClient::OnChunkedDataAbort(sf::Packet& packet)
 
   const auto iter = m_chunked_data_receive_queue.find(cid);
   if (iter == m_chunked_data_receive_queue.end())
+  {
+    INFO_LOG_FMT(NETPLAY, "Invalid data chunk ID {}.", cid);
     return;
+  }
+
+  INFO_LOG_FMT(NETPLAY, "Aborting data chunk {}.", cid);
 
   m_chunked_data_receive_queue.erase(iter);
   m_dialog->HideChunkedProgressDialog();
@@ -872,7 +903,7 @@ void NetPlayClient::OnStartGame(sf::Packet& packet)
     packet >> m_net_settings.fast_depth_calc;
     packet >> m_net_settings.enable_pixel_lighting;
     packet >> m_net_settings.widescreen_hack;
-    packet >> m_net_settings.force_filtering;
+    packet >> m_net_settings.force_texture_filtering;
     packet >> m_net_settings.max_anisotropy;
     packet >> m_net_settings.force_true_color;
     packet >> m_net_settings.disable_copy_filter;
@@ -980,6 +1011,8 @@ void NetPlayClient::OnSyncSaveData(sf::Packet& packet)
   if (m_local_player->IsHost())
     return;
 
+  INFO_LOG_FMT(NETPLAY, "Processing OnSyncSaveData sub id: {}", static_cast<u8>(sub_id));
+
   switch (sub_id)
   {
   case SyncSaveDataID::Notify:
@@ -1013,6 +1046,8 @@ void NetPlayClient::OnSyncSaveDataNotify(sf::Packet& packet)
   packet >> m_sync_save_data_count;
   m_sync_save_data_success_count = 0;
 
+  INFO_LOG_FMT(NETPLAY, "Initializing wait for {} savegame chunks.", m_sync_save_data_count);
+
   if (m_sync_save_data_count == 0)
     SyncSaveDataResponse(true);
   else
@@ -1026,9 +1061,13 @@ void NetPlayClient::OnSyncSaveDataRaw(sf::Packet& packet)
   int size_override;
   packet >> is_slot_a >> region >> size_override;
 
+  INFO_LOG_FMT(NETPLAY, "Received raw memcard data for slot {}: region {}, size override {}.",
+               is_slot_a ? 'A' : 'B', region, size_override);
+
   // This check is mainly intended to filter out characters which have special meanings in paths
   if (region != JAP_DIR && region != USA_DIR && region != EUR_DIR)
   {
+    WARN_LOG_FMT(NETPLAY, "Received invalid raw memory card region.");
     SyncSaveDataResponse(false);
     return;
   }
@@ -1062,6 +1101,9 @@ void NetPlayClient::OnSyncSaveDataGCI(sf::Packet& packet)
   const std::string path = File::GetUserPath(D_GCUSER_IDX) + GC_MEMCARD_NETPLAY DIR_SEP +
                            fmt::format("Card {}", is_slot_a ? 'A' : 'B');
 
+  INFO_LOG_FMT(NETPLAY, "Received GCI memcard data for slot {}: {}, {} files.",
+               is_slot_a ? 'A' : 'B', path, file_count);
+
   if ((File::Exists(path) && !File::DeleteDirRecursively(path + DIR_SEP)) ||
       !File::CreateFullPath(path + DIR_SEP))
   {
@@ -1075,9 +1117,12 @@ void NetPlayClient::OnSyncSaveDataGCI(sf::Packet& packet)
     std::string file_name;
     packet >> file_name;
 
+    INFO_LOG_FMT(NETPLAY, "Received GCI: {}", file_name);
+
     if (!Common::IsFileNameSafe(file_name) ||
         !DecompressPacketIntoFile(packet, path + DIR_SEP + file_name))
     {
+      WARN_LOG_FMT(NETPLAY, "Received invalid GCI.");
       SyncSaveDataResponse(false);
       return;
     }
@@ -1118,6 +1163,8 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   packet >> mii_data;
   if (mii_data)
   {
+    INFO_LOG_FMT(NETPLAY, "Received Mii data.");
+
     auto buffer = DecompressPacketIntoBuffer(packet);
 
     temp_fs->CreateFullPath(IOS::PID_KERNEL, IOS::PID_KERNEL, "/shared2/menu/FaceLib/", 0,
@@ -1136,6 +1183,7 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   // Read the saves
   u32 save_count;
   packet >> save_count;
+  INFO_LOG_FMT(NETPLAY, "Received data for {} Wii saves.", save_count);
   for (u32 n = 0; n < save_count; n++)
   {
     u64 title_id = Common::PacketReadU64(packet);
@@ -1147,7 +1195,12 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
     bool exists;
     packet >> exists;
     if (!exists)
+    {
+      INFO_LOG_FMT(NETPLAY, "No data for Wii save of title {:016x}.", title_id);
       continue;
+    }
+
+    INFO_LOG_FMT(NETPLAY, "Received Wii save of title {:016x}.", title_id);
 
     // Header
     WiiSave::Header header;
@@ -1186,6 +1239,9 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
       packet >> file.type;
       packet >> file.path;
 
+      INFO_LOG_FMT(NETPLAY, "Received Wii save data of type {} at {}", static_cast<u8>(file.type),
+                   file.path);
+
       if (file.type == WiiSave::Storage::SaveFile::Type::File)
       {
         auto buffer = DecompressPacketIntoBuffer(packet);
@@ -1213,6 +1269,7 @@ void NetPlayClient::OnSyncSaveDataWii(sf::Packet& packet)
   packet >> has_redirected_save;
   if (has_redirected_save)
   {
+    INFO_LOG_FMT(NETPLAY, "Received redirected save.");
     if (!DecompressPacketIntoFolder(packet, redirect_path))
     {
       PanicAlertFmtT("Failed to write redirected save.");
@@ -1229,6 +1286,8 @@ void NetPlayClient::OnSyncSaveDataGBA(sf::Packet& packet)
 {
   u8 slot;
   packet >> slot;
+
+  INFO_LOG_FMT(NETPLAY, "Received GBA save for slot {}.", slot);
 
   const std::string path =
       fmt::format("{}{}{}.sav", File::GetUserPath(D_GBAUSER_IDX), GBA_SAVE_NETPLAY, slot + 1);
@@ -1249,6 +1308,8 @@ void NetPlayClient::OnSyncCodes(sf::Packet& packet)
   // Recieve Data Packet
   SyncCodeID sub_id;
   packet >> sub_id;
+
+  INFO_LOG_FMT(NETPLAY, "Processing OnSyncCodes sub id: {}", static_cast<u8>(sub_id));
 
   // Check Which Operation to Perform with This Packet
   switch (sub_id)
@@ -1297,7 +1358,7 @@ void NetPlayClient::OnSyncCodesNotifyGecko(sf::Packet& packet)
 
   m_sync_gecko_codes_success_count = 0;
 
-  NOTICE_LOG_FMT(ACTIONREPLAY, "Receiving {} Gecko codelines", m_sync_gecko_codes_count);
+  INFO_LOG_FMT(NETPLAY, "Receiving {} Gecko codelines", m_sync_gecko_codes_count);
 
   // Check if no codes to sync, if so return as finished
   if (m_sync_gecko_codes_count == 0)
@@ -1331,7 +1392,7 @@ void NetPlayClient::OnSyncCodesDataGecko(sf::Packet& packet)
     packet >> new_code.address;
     packet >> new_code.data;
 
-    NOTICE_LOG_FMT(ACTIONREPLAY, "Received {:08x} {:08x}", new_code.address, new_code.data);
+    INFO_LOG_FMT(NETPLAY, "Received {:08x} {:08x}", new_code.address, new_code.data);
 
     gcode.codes.push_back(std::move(new_code));
 
@@ -1364,7 +1425,7 @@ void NetPlayClient::OnSyncCodesNotifyAR(sf::Packet& packet)
 
   m_sync_ar_codes_success_count = 0;
 
-  NOTICE_LOG_FMT(ACTIONREPLAY, "Receiving {} AR codelines", m_sync_ar_codes_count);
+  INFO_LOG_FMT(NETPLAY, "Receiving {} AR codelines", m_sync_ar_codes_count);
 
   // Check if no codes to sync, if so return as finished
   if (m_sync_ar_codes_count == 0)
@@ -1398,7 +1459,7 @@ void NetPlayClient::OnSyncCodesDataAR(sf::Packet& packet)
     packet >> new_code.cmd_addr;
     packet >> new_code.value;
 
-    NOTICE_LOG_FMT(ACTIONREPLAY, "Received {:08x} {:08x}", new_code.cmd_addr, new_code.value);
+    INFO_LOG_FMT(NETPLAY, "Received {:08x} {:08x}", new_code.cmd_addr, new_code.value);
     arcode.ops.push_back(new_code);
 
     if (++m_sync_ar_codes_success_count >= m_sync_ar_codes_count)
@@ -1465,7 +1526,7 @@ void NetPlayClient::OnGameDigestAbort()
 
 void NetPlayClient::Send(const sf::Packet& packet, const u8 channel_id)
 {
-  ENetUtil::SendPacket(m_server, packet, channel_id);
+  Common::ENet::SendPacket(m_server, packet, channel_id);
 }
 
 void NetPlayClient::DisplayPlayersPing()
@@ -1520,12 +1581,14 @@ void NetPlayClient::SendAsync(sf::Packet&& packet, const u8 channel_id)
     std::lock_guard lkq(m_crit.async_queue_write);
     m_async_queue.Push(AsyncQueueEntry{std::move(packet), channel_id});
   }
-  ENetUtil::WakeupThread(m_client);
+  Common::ENet::WakeupThread(m_client);
 }
 
 // called from ---NETPLAY--- thread
 void NetPlayClient::ThreadFunc()
 {
+  INFO_LOG_FMT(NETPLAY, "NetPlayClient starting.");
+
   Common::QoSSession qos_session;
   if (Config::Get(Config::NETPLAY_ENABLE_QOS))
   {
@@ -1551,10 +1614,12 @@ void NetPlayClient::ThreadFunc()
     net = enet_host_service(m_client, &netEvent, 250);
     while (!m_async_queue.Empty())
     {
+      INFO_LOG_FMT(NETPLAY, "Processing async queue event.");
       {
         auto& e = m_async_queue.Front();
         Send(e.packet, e.channel_id);
       }
+      INFO_LOG_FMT(NETPLAY, "Processing async queue event done.");
       m_async_queue.Pop();
     }
     if (net > 0)
@@ -1562,13 +1627,20 @@ void NetPlayClient::ThreadFunc()
       sf::Packet rpac;
       switch (netEvent.type)
       {
+      case ENET_EVENT_TYPE_CONNECT:
+        INFO_LOG_FMT(NETPLAY, "enet_host_service: connect event");
+        break;
       case ENET_EVENT_TYPE_RECEIVE:
+        INFO_LOG_FMT(NETPLAY, "enet_host_service: receive event");
+
         rpac.append(netEvent.packet->data, netEvent.packet->dataLength);
         OnData(rpac);
 
         enet_packet_destroy(netEvent.packet);
         break;
       case ENET_EVENT_TYPE_DISCONNECT:
+        INFO_LOG_FMT(NETPLAY, "enet_host_service: disconnect event");
+
         m_dialog->OnConnectionLost();
 
         if (m_is_running.IsSet())
@@ -1576,10 +1648,21 @@ void NetPlayClient::ThreadFunc()
 
         break;
       default:
+        ERROR_LOG_FMT(NETPLAY, "enet_host_service: unknown event type: {}", int(netEvent.type));
         break;
       }
     }
+    else if (net == 0)
+    {
+      INFO_LOG_FMT(NETPLAY, "enet_host_service: no event occurred");
+    }
+    else
+    {
+      ERROR_LOG_FMT(NETPLAY, "enet_host_service error: {}", net);
+    }
   }
+
+  INFO_LOG_FMT(NETPLAY, "NetPlayClient shutting down.");
 
   Disconnect();
   return;
@@ -1800,11 +1883,12 @@ void NetPlayClient::UpdateDevices()
   u8 local_pad = 0;
   u8 pad = 0;
 
+  auto& si = Core::System::GetInstance().GetSerialInterface();
   for (auto player_id : m_pad_map)
   {
     if (m_gba_config[pad].enabled && player_id > 0)
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_GBA_EMULATED, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_GC_GBA_EMULATED, pad);
     }
     else if (player_id == m_local_player->pid)
     {
@@ -1813,7 +1897,7 @@ void NetPlayClient::UpdateDevices()
           Config::Get(Config::GetInfoForSIDevice(local_pad));
       if (SerialInterface::SIDevice_IsGCController(si_device))
       {
-        SerialInterface::ChangeDevice(si_device, pad);
+        si.ChangeDevice(si_device, pad);
 
         if (si_device == SerialInterface::SIDEVICE_WIIU_ADAPTER)
         {
@@ -1822,17 +1906,17 @@ void NetPlayClient::UpdateDevices()
       }
       else
       {
-        SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
+        si.ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
       }
       local_pad++;
     }
     else if (player_id > 0)
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_GC_CONTROLLER, pad);
     }
     else
     {
-      SerialInterface::ChangeDevice(SerialInterface::SIDEVICE_NONE, pad);
+      si.ChangeDevice(SerialInterface::SIDEVICE_NONE, pad);
     }
     pad++;
   }
@@ -1855,16 +1939,16 @@ void NetPlayClient::ClearBuffers()
 // called from ---NETPLAY--- thread
 void NetPlayClient::OnTraversalStateChanged()
 {
-  const TraversalClient::State state = m_traversal_client->GetState();
+  const Common::TraversalClient::State state = m_traversal_client->GetState();
 
   if (m_connection_state == ConnectionState::WaitingForTraversalClientConnection &&
-      state == TraversalClient::State::Connected)
+      state == Common::TraversalClient::State::Connected)
   {
     m_connection_state = ConnectionState::WaitingForTraversalClientConnectReady;
     m_traversal_client->ConnectToClient(m_host_spec);
   }
   else if (m_connection_state != ConnectionState::Failure &&
-           state == TraversalClient::State::Failure)
+           state == Common::TraversalClient::State::Failure)
   {
     Disconnect();
     m_dialog->OnTraversalError(m_traversal_client->GetFailureReason());
@@ -1883,19 +1967,19 @@ void NetPlayClient::OnConnectReady(ENetAddress addr)
 }
 
 // called from ---NETPLAY--- thread
-void NetPlayClient::OnConnectFailed(TraversalConnectFailedReason reason)
+void NetPlayClient::OnConnectFailed(Common::TraversalConnectFailedReason reason)
 {
   m_connecting = false;
   m_connection_state = ConnectionState::Failure;
   switch (reason)
   {
-  case TraversalConnectFailedReason::ClientDidntRespond:
+  case Common::TraversalConnectFailedReason::ClientDidntRespond:
     PanicAlertFmtT("Traversal server timed out connecting to the host");
     break;
-  case TraversalConnectFailedReason::ClientFailure:
+  case Common::TraversalConnectFailedReason::ClientFailure:
     PanicAlertFmtT("Server rejected traversal attempt");
     break;
-  case TraversalConnectFailedReason::NoSuchClient:
+  case Common::TraversalConnectFailedReason::NoSuchClient:
     PanicAlertFmtT("Invalid host");
     break;
   default:

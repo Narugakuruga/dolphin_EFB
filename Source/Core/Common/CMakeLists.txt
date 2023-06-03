@@ -6,8 +6,6 @@ add_library(common
   BitSet.h
   BitUtils.h
   BlockingLoop.h
-  CDUtils.cpp
-  CDUtils.h
   ChunkFile.h
   CodeBlock.h
   ColorUtil.cpp
@@ -33,8 +31,6 @@ add_library(common
   Crypto/ec.h
   Crypto/SHA1.cpp
   Crypto/SHA1.h
-  Debug/CodeTrace.cpp
-  Debug/CodeTrace.h
   Debug/MemoryPatches.cpp
   Debug/MemoryPatches.h
   Debug/Threads.h
@@ -43,8 +39,8 @@ add_library(common
   DebugInterface.h
   DynamicLibrary.cpp
   DynamicLibrary.h
-  ENetUtil.cpp
-  ENetUtil.h
+  ENet.cpp
+  ENet.h
   EnumFormatter.h
   EnumMap.h
   Event.h
@@ -64,6 +60,7 @@ add_library(common
   GekkoDisassembler.h
   Hash.cpp
   Hash.h
+  HookableEvent.h
   HttpRequest.cpp
   HttpRequest.h
   Image.cpp
@@ -81,7 +78,6 @@ add_library(common
   Logging/Log.h
   Logging/LogManager.cpp
   Logging/LogManager.h
-  MathUtil.cpp
   MathUtil.h
   Matrix.cpp
   Matrix.h
@@ -117,6 +113,7 @@ add_library(common
   SocketContext.cpp
   SocketContext.h
   SPSCQueue.h
+  StringLiteral.h
   StringUtil.cpp
   StringUtil.h
   SymbolDB.cpp
@@ -138,14 +135,6 @@ add_library(common
   WorkQueueThread.h
 )
 
-if(MSVC AND _M_ARM_64)
-  # Workaround msvc arm64 optimizer bug
-  # TODO remove after updating to VS 17.4
-  set_source_files_properties(
-    Crypto/SHA1.cpp
-    PROPERTIES COMPILE_FLAGS "/d2ssa-peeps-post-color-")
-endif()
-
 if(NOT MSVC AND _M_ARM_64)
   set_source_files_properties(
     Crypto/AES.cpp
@@ -164,8 +153,8 @@ PUBLIC
 PRIVATE
   ${CURL_LIBRARIES}
   FatFs
-  ${ICONV_LIBRARIES}
-  spng
+  Iconv::Iconv
+  ${spng_target}
   ${VTUNE_LIBRARIES}
 )
 
@@ -278,6 +267,7 @@ if(WIN32)
     CompatPatches.cpp
     GL/GLInterface/WGL.cpp
     GL/GLInterface/WGL.h
+    WindowsRegistry.cpp
   )
 elseif(APPLE)
   target_sources(common PRIVATE
@@ -306,7 +296,7 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   target_link_libraries(common PUBLIC dl rt)
 endif()
 
-if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+if(WIN32)
   target_sources(common PRIVATE HRWrap.h HRWrap.cpp)
 endif()
 

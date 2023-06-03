@@ -8,6 +8,7 @@
 
 #include "Common/Align.h"
 #include "Core/HW/Memmap.h"
+#include "Core/System.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/TextureDecoder.h"
 
@@ -44,7 +45,9 @@ TextureInfo TextureInfo::FromStage(u32 stage)
                        &texMem[tmem_address_even], mip_count);
   }
 
-  return TextureInfo(stage, Memory::GetPointer(address), tlut_ptr, address, texture_format,
+  auto& system = Core::System::GetInstance();
+  auto& memory = system.GetMemory();
+  return TextureInfo(stage, memory.GetPointer(address), tlut_ptr, address, texture_format,
                      tlut_format, width, height, false, nullptr, nullptr, mip_count);
 }
 
@@ -80,7 +83,7 @@ TextureInfo::TextureInfo(u32 stage, const u8* ptr, const u8* tlut_ptr, u32 addre
     // e.g. 64x64 with 7 LODs would have the mipmap chain 64x64,32x32,16x16,8x8,4x4,2x2,1x1,0x0, so
     // we limit the mipmap count to 6 there
     const u32 limited_mip_count =
-        std::min<u32>(IntLog2(std::max(width, height)) + 1, raw_mip_count + 1) - 1;
+        std::min<u32>(MathUtil::IntLog2(std::max(width, height)) + 1, raw_mip_count + 1) - 1;
 
     // load mips
     const u8* src_data = m_ptr + GetTextureSize();

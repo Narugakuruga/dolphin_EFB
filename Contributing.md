@@ -7,7 +7,7 @@ If you make any contributions to Dolphin after December 1st, 2014, you are agree
 - [Introduction](#introduction)
 - [C++ coding style and formatting](#cpp-coding-style-and-formatting)
 - [C++ code-specific guidelines](#cpp-code-specific-guidelines)
-- [Android and Java](#android-and-java)
+- [Android](#android)
 - [Help](#help)
 
 
@@ -173,7 +173,8 @@ Summary:
 - [Classes and Structs](#cpp-code-classes-and-structs)
 
 ## <a name="cpp-code-general"></a>General
-- The codebase currently uses C++17.
+- The codebase currently uses C++20, though not all compilers support all C++20 features.
+  - See CMakeLists.txt "Enforce minimium compiler versions" for the currently supported compilers.
 - Use the [nullptr](https://en.cppreference.com/w/cpp/language/nullptr) type over the macro `NULL`.
 - If a [range-based for loop](https://en.cppreference.com/w/cpp/language/range-for) can be used instead of container iterators, use it.
 - Obviously, try not to use `goto` unless you have a *really* good reason for it.
@@ -272,9 +273,15 @@ Summary:
   };
   ```
 
-# <a name="android-and-java"></a>Android and Java
+# <a name="android"></a>Android
 
-The Android project is currently written in Java. If you are using Android Studio to contribute, you can import the project's code style from `code-style-java.jar`, located in `[Dolphin Root]/Source/Android`. Please organize imports before committing.
+If you are using Kotlin, just use the built-in official Kotlin code style.
+
+To install the Java code style in Android Studio, select the gear icon in the Code Style settings as shown, select `Import Scheme...` and select `dolphin/Source/Android/code-style-java.xml`. The Code Style menu should look like this when complete. ![Code Style Window][code-style]
+
+You can now select any section of code and press `Ctrl + Alt + L` to automatically format it.
 
 # <a name="help"></a>Help
 If you have any questions about Dolphin's development or would like some help, Dolphin developers use `#dolphin-emu @ irc.libera.chat` to communicate. If you are new to IRC, [Libera.Chat has resources to get started chatting with IRC.](https://libera.chat/)
+
+[code-style]: https://i.imgur.com/3b3UBhb.png

@@ -4,10 +4,12 @@
 #include "VideoBackends/Metal/MTLStateTracker.h"
 
 #include <algorithm>
+#include <bit>
 #include <mutex>
 
 #include "Common/Assert.h"
-#include "Common/BitUtils.h"
+
+#include "Core/System.h"
 
 #include "VideoBackends/Metal/MTLObjectCache.h"
 #include "VideoBackends/Metal/MTLPerfQuery.h"
@@ -369,8 +371,8 @@ void Metal::StateTracker::BeginRenderPass(MTLRenderPassDescriptor* descriptor)
   m_current.cull_mode = MTLCullModeNone;
   m_current.perf_query_group = static_cast<PerfQueryGroup>(-1);
   m_flags.NewEncoder();
-  m_dirty_samplers = 0xff;
-  m_dirty_textures = 0xff;
+  m_dirty_samplers = (1 << VideoCommon::MAX_PIXEL_SHADER_SAMPLERS) - 1;
+  m_dirty_textures = (1 << VideoCommon::MAX_PIXEL_SHADER_SAMPLERS) - 1;
   CheckScissor();
   CheckViewport();
   ASSERT_MSG(VIDEO, m_current_render_encoder, "Failed to create render encoder!");
@@ -384,8 +386,8 @@ void Metal::StateTracker::BeginComputePass()
   if (m_manual_buffer_upload)
     [m_current_compute_encoder waitForFence:m_fence];
   m_flags.NewEncoder();
-  m_dirty_samplers = 0xff;
-  m_dirty_textures = 0xff;
+  m_dirty_samplers = (1 << VideoCommon::MAX_PIXEL_SHADER_SAMPLERS) - 1;
+  m_dirty_textures = (1 << VideoCommon::MAX_PIXEL_SHADER_SAMPLERS) - 1;
 }
 
 void Metal::StateTracker::EndRenderPass()
@@ -432,22 +434,23 @@ void Metal::StateTracker::FlushEncoders()
     m_texture_upload_cmdbuf = nullptr;
   }
   [m_current_render_cmdbuf
-    addCompletedHandler:[backref = m_backref, draw = m_current_draw,
-                         q = std::move(m_current_perf_query)](id<MTLCommandBuffer> buf) {
-      std::lock_guard<std::mutex> guard(backref->mtx);
-      if (StateTracker* tracker = backref->state_tracker)
-      {
-        // We can do the update non-atomically because we only ever update under the lock
-        u64 newval = std::max(draw, tracker->m_last_finished_draw.load(std::memory_order_relaxed));
-        tracker->m_last_finished_draw.store(newval, std::memory_order_release);
-        if (q)
+      addCompletedHandler:[backref = m_backref, draw = m_current_draw,
+                           q = std::move(m_current_perf_query)](id<MTLCommandBuffer> buf) {
+        std::lock_guard<std::mutex> guard(backref->mtx);
+        if (StateTracker* tracker = backref->state_tracker)
         {
-          if (PerfQuery* query = static_cast<PerfQuery*>(g_perf_query.get()))
-            query->ReturnResults(q->contents, q->groups.data(), q->groups.size(), q->query_id);
-          tracker->m_perf_query_tracker_cache.emplace_back(std::move(q));
+          // We can do the update non-atomically because we only ever update under the lock
+          u64 newval =
+              std::max(draw, tracker->m_last_finished_draw.load(std::memory_order_relaxed));
+          tracker->m_last_finished_draw.store(newval, std::memory_order_release);
+          if (q)
+          {
+            if (PerfQuery* query = static_cast<PerfQuery*>(g_perf_query.get()))
+              query->ReturnResults(q->contents, q->groups.data(), q->groups.size(), q->query_id);
+            tracker->m_perf_query_tracker_cache.emplace_back(std::move(q));
+          }
         }
-      }
-    }];
+      }];
   m_current_perf_query = nullptr;
   [m_current_render_cmdbuf commit];
   m_last_render_cmdbuf = std::move(m_current_render_cmdbuf);
@@ -671,6 +674,7 @@ std::shared_ptr<Metal::StateTracker::PerfQueryTracker> Metal::StateTracker::NewP
                                                   m_perf_query_tracker_counter++]];
       tracker->buffer = MRCTransfer(buffer);
       tracker->contents = static_cast<const u64*>([buffer contents]);
+      tracker->query_id = m_state.perf_query_id;
       return tracker;
     }
   }
@@ -679,6 +683,8 @@ std::shared_ptr<Metal::StateTracker::PerfQueryTracker> Metal::StateTracker::NewP
     // Reuse an old one
     std::shared_ptr<PerfQueryTracker> tracker = std::move(m_perf_query_tracker_cache.back());
     m_perf_query_tracker_cache.pop_back();
+    tracker->groups.clear();
+    tracker->query_id = m_state.perf_query_id;
     return tracker;
   }
 }
@@ -686,15 +692,26 @@ std::shared_ptr<Metal::StateTracker::PerfQueryTracker> Metal::StateTracker::NewP
 void Metal::StateTracker::EnablePerfQuery(PerfQueryGroup group, u32 query_id)
 {
   m_state.perf_query_group = group;
+  m_state.perf_query_id = query_id;
   if (!m_current_perf_query || m_current_perf_query->query_id != query_id ||
       m_current_perf_query->groups.size() == PERF_QUERY_BUFFER_SIZE)
   {
     if (m_current_render_encoder)
       EndRenderPass();
-    if (!m_current_perf_query)
-      m_current_perf_query = NewPerfQueryTracker();
-    m_current_perf_query->groups.clear();
-    m_current_perf_query->query_id = query_id;
+    if (m_current_perf_query)
+    {
+      [m_current_render_cmdbuf
+          addCompletedHandler:[backref = m_backref, q = std::move(m_current_perf_query)](id) {
+            std::lock_guard<std::mutex> guard(backref->mtx);
+            if (StateTracker* tracker = backref->state_tracker)
+            {
+              if (PerfQuery* query = static_cast<PerfQuery*>(g_perf_query.get()))
+                query->ReturnResults(q->contents, q->groups.data(), q->groups.size(), q->query_id);
+              tracker->m_perf_query_tracker_cache.emplace_back(std::move(q));
+            }
+          }];
+      m_current_perf_query.reset();
+    }
   }
 }
 
@@ -713,8 +730,8 @@ static constexpr NSString* LABEL_UTIL = @"Utility Draw";
 static NSRange RangeOfBits(u32 value)
 {
   ASSERT(value && "Value must be nonzero");
-  u32 low = Common::CountTrailingZeros(value);
-  u32 high = 31 - Common::CountLeadingZeros(value);
+  int low = std::countr_zero(value);
+  int high = 31 - std::countl_zero(value);
   return NSMakeRange(low, high + 1 - low);
 }
 
@@ -798,19 +815,19 @@ void Metal::StateTracker::PrepareRender()
     if (m_state.vertices)
       SetVertexBufferNow(0, m_state.vertices, 0);
   }
-  if (u8 dirty = m_dirty_textures & pipe->GetTextures())
+  if (u32 dirty = m_dirty_textures & pipe->GetTextures())
   {
     m_dirty_textures &= ~pipe->GetTextures();
     NSRange range = RangeOfBits(dirty);
     [enc setFragmentTextures:&m_state.textures[range.location] withRange:range];
   }
-  if (u8 dirty = m_dirty_samplers & pipe->GetSamplers())
+  if (u32 dirty = m_dirty_samplers & pipe->GetSamplers())
   {
     m_dirty_samplers &= ~pipe->GetSamplers();
     NSRange range = RangeOfBits(dirty);
     [enc setFragmentSamplerStates:&m_state.samplers[range.location]
-                     lodMinClamps:m_state.sampler_min_lod.data()
-                     lodMaxClamps:m_state.sampler_max_lod.data()
+                     lodMinClamps:&m_state.sampler_min_lod[range.location]
+                     lodMaxClamps:&m_state.sampler_max_lod[range.location]
                         withRange:range];
   }
   if (m_state.perf_query_group != m_current.perf_query_group)
@@ -834,7 +851,9 @@ void Metal::StateTracker::PrepareRender()
     {
       m_flags.has_gx_vs_uniform = true;
       Map map = Allocate(UploadBuffer::Uniform, sizeof(VertexShaderConstants), AlignMask::Uniform);
-      memcpy(map.cpu_buffer, &VertexShaderManager::constants, sizeof(VertexShaderConstants));
+      auto& system = Core::System::GetInstance();
+      auto& vertex_shader_manager = system.GetVertexShaderManager();
+      memcpy(map.cpu_buffer, &vertex_shader_manager.constants, sizeof(VertexShaderConstants));
       SetVertexBufferNow(1, map.gpu_buffer, map.gpu_offset);
       if (pipe->UsesFragmentBuffer(1))
         SetFragmentBufferNow(1, map.gpu_buffer, map.gpu_offset);
@@ -844,7 +863,9 @@ void Metal::StateTracker::PrepareRender()
     if (!m_flags.has_gx_gs_uniform && pipe->UsesVertexBuffer(2))
     {
       m_flags.has_gx_gs_uniform = true;
-      [m_current_render_encoder setVertexBytes:&GeometryShaderManager::constants
+      auto& system = Core::System::GetInstance();
+      auto& geometry_shader_manager = system.GetGeometryShaderManager();
+      [m_current_render_encoder setVertexBytes:&geometry_shader_manager.constants
                                         length:sizeof(GeometryShaderConstants)
                                        atIndex:2];
       ADDSTAT(g_stats.this_frame.bytes_uniform_streamed, sizeof(GeometryShaderConstants));
@@ -853,7 +874,9 @@ void Metal::StateTracker::PrepareRender()
     {
       m_flags.has_gx_ps_uniform = true;
       Map map = Allocate(UploadBuffer::Uniform, sizeof(PixelShaderConstants), AlignMask::Uniform);
-      memcpy(map.cpu_buffer, &PixelShaderManager::constants, sizeof(PixelShaderConstants));
+      auto& system = Core::System::GetInstance();
+      auto& pixel_shader_manager = system.GetPixelShaderManager();
+      memcpy(map.cpu_buffer, &pixel_shader_manager.constants, sizeof(PixelShaderConstants));
       SetFragmentBufferNow(0, map.gpu_buffer, map.gpu_offset);
       ADDSTAT(g_stats.this_frame.bytes_uniform_streamed,
               Align(sizeof(PixelShaderConstants), AlignMask::Uniform));

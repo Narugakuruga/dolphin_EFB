@@ -13,7 +13,6 @@ jclass GetStringClass();
 
 jclass GetNativeLibraryClass();
 jmethodID GetDisplayAlertMsg();
-jmethodID GetDoRumble();
 jmethodID GetUpdateTouchPointer();
 jmethodID GetOnTitleChanged();
 jmethodID GetFinishEmulationActivity();
@@ -32,6 +31,10 @@ jfieldID GetGameFileCachePointer();
 jclass GetLinkedHashMapClass();
 jmethodID GetLinkedHashMapInit();
 jmethodID GetLinkedHashMapPut();
+
+jclass GetHashMapClass();
+jmethodID GetHashMapInit();
+jmethodID GetHashMapPut();
 
 jclass GetIniFileClass();
 jfieldID GetIniFilePointer();
@@ -82,5 +85,33 @@ jfieldID GetRiivolutionPatchesPointer();
 
 jclass GetWiiUpdateCallbackClass();
 jmethodID GetWiiUpdateCallbackFunction();
+
+jclass GetControlClass();
+jfieldID GetControlPointer();
+jmethodID GetControlConstructor();
+
+jclass GetControlGroupClass();
+jfieldID GetControlGroupPointer();
+jmethodID GetControlGroupConstructor();
+
+jclass GetControlReferenceClass();
+jfieldID GetControlReferencePointer();
+jmethodID GetControlReferenceConstructor();
+
+jclass GetEmulatedControllerClass();
+jfieldID GetEmulatedControllerPointer();
+jmethodID GetEmulatedControllerConstructor();
+
+jclass GetNumericSettingClass();
+jfieldID GetNumericSettingPointer();
+jmethodID GetNumericSettingConstructor();
+
+jclass GetCoreDeviceClass();
+jfieldID GetCoreDevicePointer();
+jmethodID GetCoreDeviceConstructor();
+
+jclass GetCoreDeviceControlClass();
+jfieldID GetCoreDeviceControlPointer();
+jmethodID GetCoreDeviceControlConstructor();
 
 }  // namespace IDCache

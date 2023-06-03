@@ -1106,7 +1106,8 @@ public:
   template <typename FunctionPointer>
   void ABI_CallFunctionPR(FunctionPointer func, const void* ptr, X64Reg reg1)
   {
-    MOV(64, R(ABI_PARAM2), R(reg1));
+    if (reg1 != ABI_PARAM2)
+      MOV(64, R(ABI_PARAM2), R(reg1));
     MOV(64, R(ABI_PARAM1), Imm64(reinterpret_cast<u64>(ptr)));
     ABI_CallFunction(func);
   }
@@ -1134,6 +1135,17 @@ public:
     if (!arg1.IsSimpleReg(ABI_PARAM1))
       MOV(bits, R(ABI_PARAM1), arg1);
     MOV(32, R(ABI_PARAM2), Imm32(param2));
+    ABI_CallFunction(func);
+  }
+
+  template <typename FunctionPointer>
+  void ABI_CallFunctionPAC(int bits, FunctionPointer func, const void* ptr1, const Gen::OpArg& arg2,
+                           u32 param3)
+  {
+    if (!arg2.IsSimpleReg(ABI_PARAM2))
+      MOV(bits, R(ABI_PARAM2), arg2);
+    MOV(32, R(ABI_PARAM3), Imm32(param3));
+    MOV(64, R(ABI_PARAM1), Imm64(reinterpret_cast<u64>(ptr1)));
     ABI_CallFunction(func);
   }
 
@@ -1168,10 +1180,10 @@ public:
   }
 
   template <typename T, typename... Args>
-  void ABI_CallLambdaC(const std::function<T(Args...)>* f, u32 p1)
+  void ABI_CallLambdaPC(const std::function<T(Args...)>* f, void* p1, u32 p2)
   {
     auto trampoline = &XEmitter::CallLambdaTrampoline<T, Args...>;
-    ABI_CallFunctionPC(trampoline, reinterpret_cast<const void*>(f), p1);
+    ABI_CallFunctionPPC(trampoline, reinterpret_cast<const void*>(f), p1, p2);
   }
 };  // class XEmitter
 

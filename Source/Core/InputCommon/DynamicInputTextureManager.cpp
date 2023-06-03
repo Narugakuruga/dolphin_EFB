@@ -13,7 +13,7 @@
 
 #include "InputCommon/DynamicInputTextures/DITConfiguration.h"
 #include "VideoCommon/HiresTextures.h"
-#include "VideoCommon/RenderBase.h"
+#include "VideoCommon/TextureCacheBase.h"
 
 namespace InputCommon
 {
@@ -39,7 +39,7 @@ void DynamicInputTextureManager::Load()
   }
 }
 
-void DynamicInputTextureManager::GenerateTextures(const IniFile& file,
+void DynamicInputTextureManager::GenerateTextures(const Common::IniFile& file,
                                                   const std::vector<std::string>& controller_names)
 {
   bool any_dirty = false;
@@ -48,7 +48,7 @@ void DynamicInputTextureManager::GenerateTextures(const IniFile& file,
     any_dirty |= configuration.GenerateTextures(file, controller_names);
   }
 
-  if (any_dirty && g_renderer && Core::GetState() != Core::State::Starting)
-    g_renderer->ForceReloadTextures();
+  if (any_dirty && g_texture_cache && Core::GetState() != Core::State::Starting)
+    g_texture_cache->ForceReloadTextures();
 }
 }  // namespace InputCommon

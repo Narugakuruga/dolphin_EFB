@@ -210,7 +210,7 @@ void Wiimote::HandleExtensionSwap(ExtensionNumber desired_extension_number,
     else
     {
       INFO_LOG_FMT(WIIMOTE, "Switching to Extension {} (Wiimote {} in slot {})",
-                   desired_extension_number, m_index, m_bt_device_index);
+                   static_cast<u8>(desired_extension_number), m_index, m_bt_device_index);
 
       m_active_extension = desired_extension_number;
     }
@@ -599,6 +599,11 @@ void Wiimote::DoState(PointerWrap& p)
 ExtensionNumber Wiimote::GetActiveExtensionNumber() const
 {
   return m_active_extension;
+}
+
+bool Wiimote::IsMotionPlusAttached() const
+{
+  return m_is_motion_plus_attached;
 }
 
 }  // namespace WiimoteEmu

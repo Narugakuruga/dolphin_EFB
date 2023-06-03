@@ -9,8 +9,10 @@ import android.view.ViewGroup;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
-import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
@@ -19,14 +21,13 @@ import com.google.android.material.color.MaterialColors;
 import org.dolphinemu.dolphinemu.R;
 import org.dolphinemu.dolphinemu.adapters.GameAdapter;
 import org.dolphinemu.dolphinemu.databinding.FragmentGridBinding;
+import org.dolphinemu.dolphinemu.layout.AutofitGridLayoutManager;
 import org.dolphinemu.dolphinemu.services.GameFileCacheManager;
-import org.dolphinemu.dolphinemu.utils.InsetsHelper;
 
 public final class PlatformGamesFragment extends Fragment implements PlatformGamesView
 {
   private static final String ARG_PLATFORM = "platform";
 
-  private GameAdapter mAdapter;
   private SwipeRefreshLayout mSwipeRefresh;
   private SwipeRefreshLayout.OnRefreshListener mOnRefreshListener;
 
@@ -62,10 +63,12 @@ public final class PlatformGamesFragment extends Fragment implements PlatformGam
   public void onViewCreated(@NonNull View view, Bundle savedInstanceState)
   {
     mSwipeRefresh = mBinding.swipeRefresh;
-
-    int columns = getResources().getInteger(R.integer.game_grid_columns);
-    RecyclerView.LayoutManager layoutManager = new GridLayoutManager(getActivity(), columns);
-    mAdapter = new GameAdapter();
+    GameAdapter adapter = new GameAdapter(requireActivity());
+    adapter.setStateRestorationPolicy(
+            RecyclerView.Adapter.StateRestorationPolicy.PREVENT_WHEN_EMPTY);
+    mBinding.gridGames.setAdapter(adapter);
+    mBinding.gridGames.setLayoutManager(new AutofitGridLayoutManager(requireContext(),
+            getResources().getDimensionPixelSize(R.dimen.card_width)));
 
     // Set theme color to the refresh animation's background
     mSwipeRefresh.setProgressBackgroundColorSchemeColor(
@@ -75,10 +78,7 @@ public final class PlatformGamesFragment extends Fragment implements PlatformGam
 
     mSwipeRefresh.setOnRefreshListener(mOnRefreshListener);
 
-    mBinding.gridGames.setLayoutManager(layoutManager);
-    mBinding.gridGames.setAdapter(mAdapter);
-
-    InsetsHelper.setUpList(getContext(), mBinding.gridGames);
+    setInsets();
 
     setRefreshing(GameFileCacheManager.isLoadingOrRescanning());
 
@@ -93,12 +93,6 @@ public final class PlatformGamesFragment extends Fragment implements PlatformGam
   }
 
   @Override
-  public void refreshScreenshotAtPosition(int position)
-  {
-    mAdapter.notifyItemChanged(position);
-  }
-
-  @Override
   public void onItemClick(String gameId)
   {
     // No-op for now
@@ -107,17 +101,21 @@ public final class PlatformGamesFragment extends Fragment implements PlatformGam
   @Override
   public void showGames()
   {
-    if (mAdapter != null)
+    if (mBinding == null)
+      return;
+
+    if (mBinding.gridGames.getAdapter() != null)
     {
       Platform platform = (Platform) getArguments().getSerializable(ARG_PLATFORM);
-      mAdapter.swapDataSet(GameFileCacheManager.getGameFilesForPlatform(platform));
+      ((GameAdapter) mBinding.gridGames.getAdapter()).swapDataSet(
+              GameFileCacheManager.getGameFilesForPlatform(platform));
     }
   }
 
   @Override
   public void refetchMetadata()
   {
-    mAdapter.refetchMetadata();
+    ((GameAdapter) mBinding.gridGames.getAdapter()).refetchMetadata();
   }
 
   public void setOnRefreshListener(@Nullable SwipeRefreshLayout.OnRefreshListener listener)
@@ -133,5 +131,17 @@ public final class PlatformGamesFragment extends Fragment implements PlatformGam
   public void setRefreshing(boolean refreshing)
   {
     mBinding.swipeRefresh.setRefreshing(refreshing);
+  }
+
+  private void setInsets()
+  {
+    ViewCompat.setOnApplyWindowInsetsListener(mBinding.gridGames, (v, windowInsets) ->
+    {
+      Insets insets = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
+      v.setPadding(0, 0, 0,
+              insets.bottom + getResources().getDimensionPixelSize(R.dimen.spacing_list) +
+                      getResources().getDimensionPixelSize(R.dimen.spacing_fab));
+      return windowInsets;
+    });
   }
 }

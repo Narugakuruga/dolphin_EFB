@@ -36,6 +36,7 @@
 #include "Core/IOS/IOS.h"
 #include "Core/NetPlayClient.h"
 #include "Core/NetPlayServer.h"
+#include "Core/System.h"
 
 #include "DolphinQt/Host.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
@@ -45,7 +46,6 @@
 
 #include "VideoCommon/NetPlayChatUI.h"
 #include "VideoCommon/NetPlayGolfUI.h"
-#include "VideoCommon/RenderBase.h"
 
 Settings::Settings()
 {
@@ -384,13 +384,13 @@ void Settings::SetVolume(int volume)
 
 void Settings::IncreaseVolume(int volume)
 {
-  AudioCommon::IncreaseVolume(volume);
+  AudioCommon::IncreaseVolume(Core::System::GetInstance(), volume);
   emit VolumeChanged(GetVolume());
 }
 
 void Settings::DecreaseVolume(int volume)
 {
-  AudioCommon::DecreaseVolume(volume);
+  AudioCommon::DecreaseVolume(Core::System::GetInstance(), volume);
   emit VolumeChanged(GetVolume());
 }
 
@@ -465,9 +465,9 @@ void Settings::SetDebugModeEnabled(bool enabled)
   {
     Config::SetBaseOrCurrent(Config::MAIN_ENABLE_DEBUGGING, enabled);
     emit DebugModeToggled(enabled);
+    if (enabled)
+      SetCodeVisible(true);
   }
-  if (enabled)
-    SetCodeVisible(true);
 }
 
 bool Settings::IsDebugModeEnabled() const

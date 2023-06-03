@@ -7,7 +7,6 @@
 
 #include "Common/CommonTypes.h"
 #include "VideoCommon/CPMemory.h"
-#include "VideoCommon/DataReader.h"
 #include "VideoCommon/VertexLoaderManager.h"
 
 using namespace Arm64Gen;
@@ -513,13 +512,16 @@ void VertexLoaderARM64::GenerateVertexLoader()
 
   FlushIcache();
 
-  ASSERT(m_vertex_size == m_src_ofs);
+  ASSERT_MSG(VIDEO, m_vertex_size == m_src_ofs,
+             "Vertex size from vertex loader ({}) does not match expected vertex size ({})!\nVtx "
+             "desc: {:08x} {:08x}\nVtx attr: {:08x} {:08x} {:08x}",
+             m_src_ofs, m_vertex_size, m_VtxDesc.low.Hex, m_VtxDesc.high.Hex, m_VtxAttr.g0.Hex,
+             m_VtxAttr.g1.Hex, m_VtxAttr.g2.Hex);
   m_native_vtx_decl.stride = m_dst_ofs;
 }
 
-int VertexLoaderARM64::RunVertices(DataReader src, DataReader dst, int count)
+int VertexLoaderARM64::RunVertices(const u8* src, u8* dst, int count)
 {
   m_numLoadedVertices += count;
-  return ((int (*)(u8 * src, u8 * dst, int count)) region)(src.GetPointer(), dst.GetPointer(),
-                                                           count - 1);
+  return ((int (*)(const u8* src, u8* dst, int count))region)(src, dst, count - 1);
 }

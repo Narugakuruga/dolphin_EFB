@@ -3,6 +3,10 @@
 
 #include "DolphinQt/Settings/WiiPane.h"
 
+#include <array>
+#include <future>
+#include <utility>
+
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
@@ -30,6 +34,7 @@
 #include "DolphinQt/QtUtils/DolphinFileDialog.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
 #include "DolphinQt/QtUtils/NonDefaultQPushButton.h"
+#include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 #include "DolphinQt/QtUtils/SignalBlocking.h"
 #include "DolphinQt/Settings.h"
 #include "DolphinQt/Settings/USBDeviceAddToWhitelistDialog.h"
@@ -49,6 +54,36 @@ static int TranslateSensorBarPosition(int position)
 
   return position;
 }
+
+namespace
+{
+struct SDSizeComboEntry
+{
+  u64 size;
+  const char* name;
+};
+static constexpr u64 MebibytesToBytes(u64 mebibytes)
+{
+  return mebibytes * 1024u * 1024u;
+}
+static constexpr u64 GibibytesToBytes(u64 gibibytes)
+{
+  return MebibytesToBytes(gibibytes * 1024u);
+}
+constexpr std::array sd_size_combo_entries{
+    SDSizeComboEntry{0, _trans("Auto")},
+    SDSizeComboEntry{MebibytesToBytes(64), _trans("64 MiB")},
+    SDSizeComboEntry{MebibytesToBytes(128), _trans("128 MiB")},
+    SDSizeComboEntry{MebibytesToBytes(256), _trans("256 MiB")},
+    SDSizeComboEntry{MebibytesToBytes(512), _trans("512 MiB")},
+    SDSizeComboEntry{GibibytesToBytes(1), _trans("1 GiB")},
+    SDSizeComboEntry{GibibytesToBytes(2), _trans("2 GiB")},
+    SDSizeComboEntry{GibibytesToBytes(4), _trans("4 GiB (SDHC)")},
+    SDSizeComboEntry{GibibytesToBytes(8), _trans("8 GiB (SDHC)")},
+    SDSizeComboEntry{GibibytesToBytes(16), _trans("16 GiB (SDHC)")},
+    SDSizeComboEntry{GibibytesToBytes(32), _trans("32 GiB (SDHC)")},
+};
+}  // namespace
 
 WiiPane::WiiPane(QWidget* parent) : QWidget(parent)
 {
@@ -91,6 +126,8 @@ void WiiPane::ConnectLayout()
   connect(m_sd_card_checkbox, &QCheckBox::toggled, this, &WiiPane::OnSaveConfig);
   connect(m_allow_sd_writes_checkbox, &QCheckBox::toggled, this, &WiiPane::OnSaveConfig);
   connect(m_sync_sd_folder_checkbox, &QCheckBox::toggled, this, &WiiPane::OnSaveConfig);
+  connect(m_sd_card_size_combo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+          &WiiPane::OnSaveConfig);
 
   // Whitelisted USB Passthrough Devices
   connect(m_whitelist_usb_list, &QListWidget::itemClicked, this, &WiiPane::ValidateSelectionState);
@@ -216,9 +253,16 @@ void WiiPane::CreateSDCard()
     ++row;
   }
 
-  QPushButton* pack_now = new NonDefaultQPushButton(tr("Convert Folder to File Now"));
-  QPushButton* unpack_now = new NonDefaultQPushButton(tr("Convert File to Folder Now"));
-  connect(pack_now, &QPushButton::clicked, [this] {
+  m_sd_card_size_combo = new QComboBox();
+  for (size_t i = 0; i < sd_size_combo_entries.size(); ++i)
+    m_sd_card_size_combo->addItem(tr(sd_size_combo_entries[i].name));
+  sd_settings_group_layout->addWidget(new QLabel(tr("SD Card File Size:")), row, 0);
+  sd_settings_group_layout->addWidget(m_sd_card_size_combo, row, 1);
+  ++row;
+
+  m_sd_pack_button = new NonDefaultQPushButton(tr("Convert Folder to File Now"));
+  m_sd_unpack_button = new NonDefaultQPushButton(tr("Convert File to Folder Now"));
+  connect(m_sd_pack_button, &QPushButton::clicked, [this] {
     auto result = ModalMessageBox::warning(
         this, tr("Convert Folder to File Now"),
         tr("You are about to convert the content of the folder at %1 into the file at %2. All "
@@ -228,11 +272,21 @@ void WiiPane::CreateSDCard()
         QMessageBox::Yes | QMessageBox::No);
     if (result == QMessageBox::Yes)
     {
-      if (!Common::SyncSDFolderToSDImage(false))
+      ParallelProgressDialog progress_dialog(tr("Converting..."), tr("Cancel"), 0, 0, this);
+      progress_dialog.GetRaw()->setWindowModality(Qt::WindowModal);
+      progress_dialog.GetRaw()->setWindowTitle(tr("Progress"));
+      auto success = std::async(std::launch::async, [&] {
+        const bool good = Common::SyncSDFolderToSDImage(
+            [&progress_dialog]() { return progress_dialog.WasCanceled(); }, false);
+        progress_dialog.Reset();
+        return good;
+      });
+      progress_dialog.GetRaw()->exec();
+      if (!success.get())
         ModalMessageBox::warning(this, tr("Convert Folder to File Now"), tr("Conversion failed."));
     }
   });
-  connect(unpack_now, &QPushButton::clicked, [this] {
+  connect(m_sd_unpack_button, &QPushButton::clicked, [this] {
     auto result = ModalMessageBox::warning(
         this, tr("Convert File to Folder Now"),
         tr("You are about to convert the content of the file at %2 into the folder at %1. All "
@@ -242,12 +296,22 @@ void WiiPane::CreateSDCard()
         QMessageBox::Yes | QMessageBox::No);
     if (result == QMessageBox::Yes)
     {
-      if (!Common::SyncSDImageToSDFolder())
+      ParallelProgressDialog progress_dialog(tr("Converting..."), tr("Cancel"), 0, 0, this);
+      progress_dialog.GetRaw()->setWindowModality(Qt::WindowModal);
+      progress_dialog.GetRaw()->setWindowTitle(tr("Progress"));
+      auto success = std::async(std::launch::async, [&] {
+        const bool good = Common::SyncSDImageToSDFolder(
+            [&progress_dialog]() { return progress_dialog.WasCanceled(); });
+        progress_dialog.Reset();
+        return good;
+      });
+      progress_dialog.GetRaw()->exec();
+      if (!success.get())
         ModalMessageBox::warning(this, tr("Convert File to Folder Now"), tr("Conversion failed."));
     }
   });
-  sd_settings_group_layout->addWidget(pack_now, row, 0, 1, 1);
-  sd_settings_group_layout->addWidget(unpack_now, row, 1, 1, 1);
+  sd_settings_group_layout->addWidget(m_sd_pack_button, row, 0, 1, 1);
+  sd_settings_group_layout->addWidget(m_sd_unpack_button, row, 1, 1, 1);
   ++row;
 }
 
@@ -316,6 +380,8 @@ void WiiPane::OnEmulationStateChanged(bool running)
   m_system_language_choice->setEnabled(!running);
   m_aspect_ratio_choice->setEnabled(!running);
   m_sound_mode_choice->setEnabled(!running);
+  m_sd_pack_button->setEnabled(!running);
+  m_sd_unpack_button->setEnabled(!running);
   m_wiimote_motor->setEnabled(!running);
   m_wiimote_speaker_volume->setEnabled(!running);
   m_wiimote_ir_sensitivity->setEnabled(!running);
@@ -334,6 +400,13 @@ void WiiPane::LoadConfig()
   m_sd_card_checkbox->setChecked(Settings::Instance().IsSDCardInserted());
   m_allow_sd_writes_checkbox->setChecked(Config::Get(Config::MAIN_ALLOW_SD_WRITES));
   m_sync_sd_folder_checkbox->setChecked(Config::Get(Config::MAIN_WII_SD_CARD_ENABLE_FOLDER_SYNC));
+
+  const u64 sd_card_size = Config::Get(Config::MAIN_WII_SD_CARD_FILESIZE);
+  for (size_t i = 0; i < sd_size_combo_entries.size(); ++i)
+  {
+    if (sd_size_combo_entries[i].size == sd_card_size)
+      m_sd_card_size_combo->setCurrentIndex(static_cast<int>(i));
+  }
 
   PopulateUSBPassthroughListWidget();
 
@@ -365,6 +438,14 @@ void WiiPane::OnSaveConfig()
   Config::SetBase(Config::MAIN_ALLOW_SD_WRITES, m_allow_sd_writes_checkbox->isChecked());
   Config::SetBase(Config::MAIN_WII_SD_CARD_ENABLE_FOLDER_SYNC,
                   m_sync_sd_folder_checkbox->isChecked());
+
+  const int sd_card_size_index = m_sd_card_size_combo->currentIndex();
+  if (sd_card_size_index >= 0 &&
+      static_cast<size_t>(sd_card_size_index) < sd_size_combo_entries.size())
+  {
+    Config::SetBase(Config::MAIN_WII_SD_CARD_FILESIZE,
+                    sd_size_combo_entries[sd_card_size_index].size);
+  }
 }
 
 void WiiPane::ValidateSelectionState()

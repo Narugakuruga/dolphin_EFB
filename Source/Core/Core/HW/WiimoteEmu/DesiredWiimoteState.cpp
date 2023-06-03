@@ -136,7 +136,8 @@ static bool DeserializeExtensionState(DesiredWiimoteState* state,
     return false;
   auto& e = state->extension.data.emplace<T>();
   static_assert(std::is_trivially_copyable_v<T>);
-  std::memcpy(&e, &serialized.data[offset], sizeof(T));
+  std::memcpy(static_cast<void*>(&e), static_cast<const void*>(&serialized.data[offset]),
+              sizeof(T));
   return true;
 }
 

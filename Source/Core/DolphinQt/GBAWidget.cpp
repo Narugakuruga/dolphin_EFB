@@ -42,10 +42,12 @@ static void RestartCore(const std::weak_ptr<HW::GBA::Core>& core, std::string_vi
           auto& info = Config::MAIN_GBA_ROM_PATHS[core_ptr->GetCoreInfo().device_number];
           core_ptr->Stop();
           Config::SetCurrent(info, rom_path);
-          if (core_ptr->Start(CoreTiming::GetTicks()))
+          auto& system = Core::System::GetInstance();
+          auto& core_timing = system.GetCoreTiming();
+          if (core_ptr->Start(core_timing.GetTicks()))
             return;
           Config::SetCurrent(info, Config::GetBase(info));
-          core_ptr->Start(CoreTiming::GetTicks());
+          core_ptr->Start(core_timing.GetTicks());
         }
       },
       false);
@@ -512,12 +514,7 @@ void GBAWidget::mouseMoveEvent(QMouseEvent* event)
 {
   if (!m_moving)
     return;
-  auto event_pos =
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-      event->globalPosition().toPoint();
-#else
-      event->globalPos();
-#endif
+  auto event_pos = event->globalPosition().toPoint();
   move(event_pos - m_move_pos - (geometry().topLeft() - pos()));
 }
 

@@ -8,8 +8,8 @@
 #include "Common/Assert.h"
 #include "Common/Image.h"
 #include "Common/MsgHandler.h"
+#include "VideoCommon/AbstractGfx.h"
 #include "VideoCommon/AbstractStagingTexture.h"
-#include "VideoCommon/RenderBase.h"
 
 AbstractTexture::AbstractTexture(const TextureConfig& c) : m_config(c)
 {
@@ -19,7 +19,7 @@ void AbstractTexture::FinishedRendering()
 {
 }
 
-bool AbstractTexture::Save(const std::string& filename, unsigned int level)
+bool AbstractTexture::Save(const std::string& filename, unsigned int level, int compression)
 {
   // We can't dump compressed textures currently (it would mean drawing them to a RGBA8
   // framebuffer, and saving that). TextureCache does not call Save for custom textures
@@ -36,7 +36,7 @@ bool AbstractTexture::Save(const std::string& filename, unsigned int level)
   TextureConfig readback_texture_config(level_width, level_height, 1, 1, 1,
                                         AbstractTextureFormat::RGBA8, 0);
   auto readback_texture =
-      g_renderer->CreateStagingTexture(StagingTextureType::Readback, readback_texture_config);
+      g_gfx->CreateStagingTexture(StagingTextureType::Readback, readback_texture_config);
   if (!readback_texture)
     return false;
 
@@ -51,7 +51,7 @@ bool AbstractTexture::Save(const std::string& filename, unsigned int level)
   return Common::SavePNG(filename,
                          reinterpret_cast<const u8*>(readback_texture->GetMappedPointer()),
                          Common::ImageByteFormat::RGBA, level_width, level_height,
-                         static_cast<int>(readback_texture->GetMappedStride()));
+                         static_cast<int>(readback_texture->GetMappedStride()), compression);
 }
 
 bool AbstractTexture::IsCompressedFormat(AbstractTextureFormat format)

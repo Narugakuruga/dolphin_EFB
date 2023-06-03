@@ -62,8 +62,11 @@ private:
   QCheckBox* m_sd_card_checkbox;
   QCheckBox* m_allow_sd_writes_checkbox;
   QCheckBox* m_sync_sd_folder_checkbox;
+  QComboBox* m_sd_card_size_combo;
   QLineEdit* m_sd_raw_edit;
   QLineEdit* m_sd_sync_folder_edit;
+  QPushButton* m_sd_pack_button;
+  QPushButton* m_sd_unpack_button;
 
   // Whitelisted USB Passthrough Devices
   QListWidget* m_whitelist_usb_list;

@@ -210,7 +210,8 @@ static ErrorCode WriteFile(const std::string& filename, const std::vector<u8>& t
         f_write(&dst, tmp_buffer.data() + offset, chunk_size, &written_size);
     if (write_error_code != FR_OK)
     {
-      ERROR_LOG_FMT(IOS_WC24, "Failed to write file {} to VFF {}", filename, write_error_code);
+      ERROR_LOG_FMT(IOS_WC24, "Failed to write file {} to VFF: {}", filename,
+                    static_cast<u32>(write_error_code));
       return WC24_ERR_FILE_WRITE;
     }
 
@@ -252,7 +253,7 @@ public:
 
   int DiskIOCtl(u8 pdrv, u8 cmd, void* buff) override { return vff_ioctl(m_vff, pdrv, cmd, buff); }
 
-  IOS::HLE::FS::FileHandle* m_vff;
+  IOS::HLE::FS::FileHandle* m_vff = nullptr;
 };
 }  // namespace
 
@@ -266,7 +267,7 @@ ErrorCode OpenVFF(const std::string& path, const std::string& filename,
     if (!temp)
     {
       ERROR_LOG_FMT(IOS_WC24, "Failed to open VFF at: {}", path);
-      return_value = WC24_ERR_NOT_FOUND;
+      return_value = WC24_ERR_FILE_OPEN;
       return;
     }
 
@@ -280,7 +281,7 @@ ErrorCode OpenVFF(const std::string& path, const std::string& filename,
     {
       // The VFF is most likely broken.
       ERROR_LOG_FMT(IOS_WC24, "Failed to mount VFF at: {}", path);
-      return_value = WC24_ERR_BROKEN;
+      return_value = WC24_ERR_FILE_READ;
       return;
     }
 
@@ -289,7 +290,7 @@ ErrorCode OpenVFF(const std::string& path, const std::string& filename,
     {
       // The VFF is most likely broken.
       ERROR_LOG_FMT(IOS_WC24, "Failed to mount VFF at: {}", path);
-      return_value = WC24_ERR_BROKEN;
+      return_value = WC24_ERR_FILE_READ;
       return;
     }
 

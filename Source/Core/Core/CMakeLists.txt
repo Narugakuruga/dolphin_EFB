@@ -1,4 +1,6 @@
 add_library(core
+  AchievementManager.cpp
+  AchievementManager.h
   ActionReplay.cpp
   ActionReplay.h
   ARDecrypt.cpp
@@ -21,6 +23,8 @@ add_library(core
   CheatSearch.cpp
   CheatSearch.h
   CommonTitles.h
+  Config/AchievementSettings.cpp
+  Config/AchievementSettings.h
   Config/DefaultLocale.cpp
   Config/DefaultLocale.h
   Config/FreeLookSettings.cpp
@@ -55,6 +59,8 @@ add_library(core
   Core.h
   CoreTiming.cpp
   CoreTiming.h
+  Debugger/CodeTrace.cpp
+  Debugger/CodeTrace.h
   Debugger/Debugger_SymbolMap.cpp
   Debugger/Debugger_SymbolMap.h
   Debugger/Dump.cpp
@@ -399,6 +405,10 @@ add_library(core
   IOS/USB/Bluetooth/WiimoteHIDAttr.h
   IOS/USB/Common.cpp
   IOS/USB/Common.h
+  IOS/USB/Emulated/Infinity.cpp
+  IOS/USB/Emulated/Infinity.h
+  IOS/USB/Emulated/Skylander.cpp
+  IOS/USB/Emulated/Skylander.h
   IOS/USB/Host.cpp
   IOS/USB/Host.h
   IOS/USB/OH0/OH0.cpp
@@ -449,6 +459,8 @@ add_library(core
   PowerPC/CachedInterpreter/InterpreterBlockCache.h
   PowerPC/ConditionRegister.cpp
   PowerPC/ConditionRegister.h
+  PowerPC/Expression.cpp
+  PowerPC/Expression.h
   PowerPC/Interpreter/ExceptionUtils.h
   PowerPC/Interpreter/Interpreter_Branch.cpp
   PowerPC/Interpreter/Interpreter_FloatingPoint.cpp
@@ -593,6 +605,7 @@ PUBLIC
   cubeb
   discio
   enet
+  expr
   inputcommon
   ${MBEDTLS_LIBRARIES}
   pugixml
@@ -741,4 +754,9 @@ endif()
 if(MSVC)
   # Add precompiled header
   target_link_libraries(core PRIVATE use_pch)
+endif()
+
+if(USE_RETRO_ACHIEVEMENTS)
+  target_link_libraries(core PRIVATE rcheevos)
+  target_compile_definitions(core PRIVATE -DUSE_RETRO_ACHIEVEMENTS)
 endif()

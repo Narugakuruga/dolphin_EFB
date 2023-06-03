@@ -10,6 +10,7 @@
 enum class AspectMode : int;
 enum class ShaderCompilationMode : int;
 enum class StereoMode : int;
+enum class TextureFilteringMode : int;
 enum class TriState : int;
 
 namespace Config
@@ -29,6 +30,13 @@ extern const Info<AspectMode> GFX_SUGGESTED_ASPECT_RATIO;
 extern const Info<bool> GFX_CROP;
 extern const Info<int> GFX_SAFE_TEXTURE_CACHE_COLOR_SAMPLES;
 extern const Info<bool> GFX_SHOW_FPS;
+extern const Info<bool> GFX_SHOW_FTIMES;
+extern const Info<bool> GFX_SHOW_VPS;
+extern const Info<bool> GFX_SHOW_VTIMES;
+extern const Info<bool> GFX_SHOW_GRAPHS;
+extern const Info<bool> GFX_SHOW_SPEED;
+extern const Info<bool> GFX_SHOW_SPEED_COLORS;
+extern const Info<int> GFX_PERF_SAMP_WINDOW;
 extern const Info<bool> GFX_SHOW_NETPLAY_PING;
 extern const Info<bool> GFX_SHOW_NETPLAY_MESSAGES;
 extern const Info<bool> GFX_LOG_RENDER_TIME_TO_FILE;
@@ -38,6 +46,7 @@ extern const Info<bool> GFX_OVERLAY_SCISSOR_STATS;
 extern const Info<bool> GFX_DUMP_TEXTURES;
 extern const Info<bool> GFX_DUMP_MIP_TEXTURES;
 extern const Info<bool> GFX_DUMP_BASE_TEXTURES;
+extern const Info<int> GFX_TEXTURE_PNG_COMPRESSION_LEVEL;
 extern const Info<bool> GFX_HIRES_TEXTURES;
 extern const Info<bool> GFX_CACHE_HIRES_TEXTURES;
 extern const Info<bool> GFX_DUMP_EFB_TARGET;
@@ -74,9 +83,10 @@ extern const Info<int> GFX_SHADER_COMPILER_THREADS;
 extern const Info<int> GFX_SHADER_PRECOMPILER_THREADS;
 extern const Info<bool> GFX_SAVE_TEXTURE_CACHE_TO_STATE;
 extern const Info<bool> GFX_PREFER_VS_FOR_LINE_POINT_EXPANSION;
+extern const Info<bool> GFX_CPU_CULL;
 
 extern const Info<TriState> GFX_MTL_MANUALLY_UPLOAD_BUFFERS;
-extern const Info<bool> GFX_MTL_USE_PRESENT_DRAWABLE;
+extern const Info<TriState> GFX_MTL_USE_PRESENT_DRAWABLE;
 
 extern const Info<bool> GFX_SW_DUMP_OBJECTS;
 extern const Info<bool> GFX_SW_DUMP_TEV_STAGES;
@@ -88,7 +98,7 @@ extern const Info<bool> GFX_MODS_ENABLE;
 
 // Graphics.Enhancements
 
-extern const Info<bool> GFX_ENHANCE_FORCE_FILTERING;
+extern const Info<TextureFilteringMode> GFX_ENHANCE_FORCE_TEXTURE_FILTERING;
 extern const Info<int> GFX_ENHANCE_MAX_ANISOTROPY;  // NOTE - this is x in (1 << x)
 extern const Info<std::string> GFX_ENHANCE_POST_SHADER;
 extern const Info<bool> GFX_ENHANCE_FORCE_TRUE_COLOR;
@@ -127,8 +137,12 @@ extern const Info<bool> GFX_HACK_EARLY_XFB_OUTPUT;
 extern const Info<bool> GFX_HACK_COPY_EFB_SCALED;
 extern const Info<bool> GFX_HACK_EFB_EMULATE_FORMAT_CHANGES;
 extern const Info<bool> GFX_HACK_VERTEX_ROUNDING;
+extern const Info<bool> GFX_HACK_VI_SKIP;
 extern const Info<u32> GFX_HACK_MISSING_COLOR_VALUE;
 extern const Info<bool> GFX_HACK_FAST_TEXTURE_SAMPLING;
+#ifdef __APPLE__
+extern const Info<bool> GFX_HACK_NO_MIPMAPPING;
+#endif
 
 // Graphics.GameSpecific
 
