@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QSpinBox>
 #include <QVBoxLayout>
+#include "QFontMetrics"
 
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/SYSCONFSettings.h"
@@ -19,6 +20,7 @@
 #include "DolphinQt/Config/ConfigControls/ConfigChoice.h"
 #include "DolphinQt/Config/ConfigControls/ConfigInteger.h"
 #include "DolphinQt/Config/Graphics/GraphicsWindow.h"
+#include "DolphinQt/Config/Graphics/GraphicsSlider.h"
 #include "DolphinQt/Config/ToolTipControls/ToolTipCheckBox.h"
 #include "DolphinQt/QtUtils/SignalBlocking.h"
 #include "DolphinQt/Settings.h"
@@ -173,6 +175,74 @@ void AdvancedWidget::CreateWidgets()
   misc_layout->addWidget(m_borderless_fullscreen, 2, 1);
 #endif
 
+    // Scaled EFB Copy Exclusions
+  auto* efb_box = new QGroupBox(tr("Scaled EFB Copy Exclusions"));
+  auto* efb_layout = new QVBoxLayout();
+  auto* efb_layout_width_integer = new QHBoxLayout();
+  auto* efb_layout_top = new QHBoxLayout();
+  auto* efb_layout_bottom = new QHBoxLayout();
+  efb_box->setLayout(efb_layout);
+
+  m_scaled_efb_exclude_enable =
+      new GraphicsBool(tr("Enabled"), Config::GFX_EFB_SCALE_EXCLUDE_ENABLED);
+  m_scaled_efb_exclude_alt = new GraphicsBool(tr("Filter Less"), Config::GFX_EFB_SCALE_EXCLUDE_ALT);
+  m_scaled_efb_exclude_blur =
+      new GraphicsBool(tr("Edit Bloom"), Config::GFX_EFB_SCALE_EXCLUDE_BLUR);
+  m_scaled_efb_exclude_downscale =
+      new GraphicsBool(tr("Downscale Bloom"), Config::GFX_EFB_SCALE_EXCLUDE_DOWNSCALE);
+  m_scaled_efb_exclude_slider_width =
+      new GraphicsSlider(0, EFB_WIDTH, Config::GFX_EFB_SCALE_EXCLUDE_WIDTH, 1);
+  m_scaled_efb_exclude_integer_width =
+      new GraphicsInteger(0, EFB_WIDTH, Config::GFX_EFB_SCALE_EXCLUDE_WIDTH, 1);
+  // Multipled by 5 for percentage
+  m_scaled_efb_exclude_slider_bloom_strength =
+      new GraphicsSlider(0, 25, Config::GFX_EFB_SCALE_EXCLUDE_BLOOM_STRENGTH, 5);
+  m_scaled_efb_exclude_slider_blur_radius =
+      new GraphicsSlider(0, 10, Config::GFX_EFB_SCALE_EXCLUDE_BLUR_RADIUS, 1);
+  auto* bloom_strength_label = new QLabel(tr("Strength:"));
+  auto* blur_radius_label = new QLabel(tr("Radius:"));
+  m_bloom_strength_val_label = new QLabel(tr("100%"));
+  m_bloom_strength_val_label->setFixedWidth(32);
+  m_blur_radius_val_label = new QLabel(tr("1"));
+  m_blur_radius_val_label->setFixedWidth(16);
+
+  if (!m_scaled_efb_exclude_enable->isChecked())
+  {
+    m_scaled_efb_exclude_slider_width->setEnabled(false);
+    m_scaled_efb_exclude_alt->setEnabled(false);
+    m_scaled_efb_exclude_blur->setEnabled(false);
+    m_scaled_efb_exclude_downscale->setEnabled(false);
+    m_scaled_efb_exclude_integer_width->setEnabled(false);
+    m_scaled_efb_exclude_slider_blur_radius->setEnabled(false);
+    m_scaled_efb_exclude_slider_bloom_strength->setEnabled(false);
+  }
+
+  m_scaled_efb_exclude_slider_blur_radius->setTickPosition(QSlider::TicksBelow);
+  // m_scaled_efb_exclude_slider_blur_radius->setTickInterval(1);
+  m_scaled_efb_exclude_slider_bloom_strength->setTickPosition(QSlider::TicksBelow);
+  // m_scaled_efb_exclude_slider_bloom_strength->setTickInterval(5);
+
+  QFontMetrics fm(font());
+  m_scaled_efb_exclude_integer_width->setFixedWidth(fm.lineSpacing() * 4);
+
+  efb_layout_top->addWidget(m_scaled_efb_exclude_enable);
+  efb_layout_top->addStretch();
+  efb_layout_top->addWidget(m_scaled_efb_exclude_downscale);
+  efb_layout_top->addWidget(m_scaled_efb_exclude_alt);
+  efb_layout_top->addWidget(m_scaled_efb_exclude_blur);
+  efb_layout_width_integer->addWidget(new QLabel(tr("Width < ")));
+  efb_layout_width_integer->addWidget(m_scaled_efb_exclude_integer_width);
+  efb_layout_width_integer->addWidget(m_scaled_efb_exclude_slider_width);
+  efb_layout_bottom->addWidget(blur_radius_label);
+  efb_layout_bottom->addWidget(m_blur_radius_val_label);
+  efb_layout_bottom->addWidget(m_scaled_efb_exclude_slider_blur_radius);
+  efb_layout_bottom->addWidget(bloom_strength_label);
+  efb_layout_bottom->addWidget(m_bloom_strength_val_label);
+  efb_layout_bottom->addWidget(m_scaled_efb_exclude_slider_bloom_strength);
+  efb_layout->addLayout(efb_layout_top);
+  efb_layout->addLayout(efb_layout_width_integer);
+  efb_layout->addLayout(efb_layout_bottom);
+
   // Experimental.
   auto* experimental_box = new QGroupBox(tr("Experimental"));
   auto* experimental_layout = new QGridLayout();
@@ -192,6 +262,7 @@ void AdvancedWidget::CreateWidgets()
   main_layout->addWidget(texture_dump_box);
   main_layout->addWidget(dump_box);
   main_layout->addWidget(misc_box);
+  main_layout->addWidget(efb_box);
   main_layout->addWidget(experimental_box);
   main_layout->addStretch();
 
@@ -203,6 +274,40 @@ void AdvancedWidget::ConnectWidgets()
   connect(m_load_custom_textures, &QCheckBox::toggled, this, &AdvancedWidget::SaveSettings);
   connect(m_dump_use_ffv1, &QCheckBox::toggled, this, &AdvancedWidget::SaveSettings);
   connect(m_enable_prog_scan, &QCheckBox::toggled, this, &AdvancedWidget::SaveSettings);
+  connect(m_scaled_efb_exclude_enable, &GraphicsBool::toggled, [=](bool checked) {
+    m_scaled_efb_exclude_slider_width->setEnabled(checked);
+    m_scaled_efb_exclude_alt->setEnabled(checked);
+    m_scaled_efb_exclude_integer_width->setEnabled(checked);
+    m_scaled_efb_exclude_downscale->setEnabled(checked);
+    if (m_scaled_efb_exclude_blur->isChecked() == true)
+    {
+      m_scaled_efb_exclude_slider_bloom_strength->setEnabled(checked);
+      m_scaled_efb_exclude_slider_blur_radius->setEnabled(checked);
+    }
+
+    m_scaled_efb_exclude_blur->setEnabled(checked);
+  });
+  connect(m_scaled_efb_exclude_slider_bloom_strength, &GraphicsSlider::valueChanged, this,
+          [=](int value) { m_bloom_strength_val_label->setText(tr("%1%").arg(value * 5)); });
+  connect(m_scaled_efb_exclude_slider_blur_radius, &GraphicsSlider::valueChanged, this,
+          [=](int value) {
+            if (value == 0)
+              m_blur_radius_val_label->setText(tr("off"));
+            else
+              m_blur_radius_val_label->setText(tr("%1").arg(value));
+          });
+
+  connect(m_scaled_efb_exclude_blur, &QCheckBox::toggled, [=](bool checked) {
+    m_scaled_efb_exclude_slider_bloom_strength->setEnabled(checked);
+    m_scaled_efb_exclude_slider_blur_radius->setEnabled(checked);
+  });
+
+  // A &QSlider signal won't fire when game ini's trigger a change, due to a signalblock in
+  // GraphicsSlider
+  // connect(m_scaled_efb_exclude_slider_width, &GraphicsSlider::valueChanged, [=] {
+  //  m_scaled_efb_exclude_integer_width->setValue(m_scaled_efb_exclude_slider_width->value());
+  //});
+
   connect(m_dump_textures, &QCheckBox::toggled, this, &AdvancedWidget::SaveSettings);
   connect(m_enable_graphics_mods, &QCheckBox::toggled, this, &AdvancedWidget::SaveSettings);
 }
@@ -215,6 +320,10 @@ void AdvancedWidget::LoadSettings()
   m_enable_prog_scan->setChecked(Config::Get(Config::SYSCONF_PROGRESSIVE_SCAN));
   m_dump_mip_textures->setEnabled(Config::Get(Config::GFX_DUMP_TEXTURES));
   m_dump_base_textures->setEnabled(Config::Get(Config::GFX_DUMP_TEXTURES));
+  m_bloom_strength_val_label->setText(
+      (tr("%1%").arg(Config::Get(Config::GFX_EFB_SCALE_EXCLUDE_BLOOM_STRENGTH) * 5)));
+  m_blur_radius_val_label->setText(
+      tr("%1").arg(Config::Get(Config::GFX_EFB_SCALE_EXCLUDE_BLUR_RADIUS)));
 
   SignalBlocking(m_enable_graphics_mods)->setChecked(Settings::Instance().GetGraphicModsEnabled());
 }
@@ -392,7 +501,31 @@ void AdvancedWidget::AddDescriptions()
       "resolutions; additionally, Anisotropic Filtering is currently incompatible with Manual "
       "Texture Sampling.<br><br>"
       "<dolphin_emphasis>If unsure, leave this unchecked.</dolphin_emphasis>");
-
+  static const char TR_SCALED_EFB_EXCLUDE_DESCRIPTION[] = QT_TR_NOOP(
+      "EFB copies can have different sizes. Scaling up small EFB copies can create graphical "
+      "issues, like poor bloom. These sliders will exclude efb copies from scaling based on their "
+      "width and/or height in pixels. <br><br><dolphin_emphasis>If unsure, leave this "
+      "unchecked.</dolphin_emphasis>");
+  static const char TR_SCALED_EFB_EXCLUDE_WIDTH_DESCRIPTION[] = QT_TR_NOOP(
+      "This slider will exclude EFB copies from scaling based on their "
+      "width in pixels. <br><br>0 = "
+      "exclude nothing. <br><br>640 = exclude everything, the same as Scaled EFB Copy = "
+      "off.<br><br>"
+      "Start on the left and slowly move the slider to the right until the graphical issue "
+      "improves. Values of 161, 300 or 630 may "
+      "be good.");
+  static const char TR_SCALED_EFB_EXCLUDE_BLUR_DESCRIPTION[] =
+      QT_TR_NOOP("Allows EFB to be upscaled, but then Blurs it to produce a higher quality bloom. "
+                 "Fixes shimmering issues that the normal bloom exclusions cause in various games "
+                 "with large bloom EFBs. Can fail to fix bloom in games with small bloom EFBs."
+                 "<br><br><dolphin_emphasis>If unsure, leave this "
+                 "unchecked.</dolphin_emphasis>");
+  static const char TR_SCALED_EFB_EXCLUDE_ALT_DESCRIPTION[] =
+      QT_TR_NOOP("Only excludes textures that are written on top of eachother. Fixes low-res "
+                 "issues in some games."
+                 "<br><br><dolphin_emphasis>If unsure, leave this "
+                 "unchecked.</dolphin_emphasis>");
+  
 #ifdef _WIN32
   static const char TR_BORDERLESS_FULLSCREEN_DESCRIPTION[] = QT_TR_NOOP(
       "Implements fullscreen mode with a borderless window spanning the whole screen instead of "
@@ -429,6 +562,17 @@ void AdvancedWidget::AddDescriptions()
   m_disable_vram_copies->SetDescription(tr(TR_DISABLE_VRAM_COPIES_DESCRIPTION));
   m_enable_graphics_mods->SetDescription(tr(TR_LOAD_GRAPHICS_MODS_DESCRIPTION));
   m_use_fullres_framedumps->SetDescription(tr(TR_INTERNAL_RESOLUTION_FRAME_DUMPING_DESCRIPTION));
+  
+  m_scaled_efb_exclude_enable->SetTitle(tr("Scaled EFB Copy Exclusions"));
+  m_scaled_efb_exclude_enable->SetDescription(tr(TR_SCALED_EFB_EXCLUDE_DESCRIPTION));
+  m_scaled_efb_exclude_integer_width->SetTitle(tr("Width"));
+  m_scaled_efb_exclude_integer_width->SetDescription(tr(TR_SCALED_EFB_EXCLUDE_WIDTH_DESCRIPTION));
+  m_scaled_efb_exclude_slider_width->SetTitle(tr("Width"));
+  m_scaled_efb_exclude_slider_width->SetDescription(tr(TR_SCALED_EFB_EXCLUDE_WIDTH_DESCRIPTION));
+  m_scaled_efb_exclude_alt->SetTitle(tr("Reduce amount of exclusions"));
+  m_scaled_efb_exclude_alt->SetDescription(tr(TR_SCALED_EFB_EXCLUDE_ALT_DESCRIPTION));
+  m_scaled_efb_exclude_blur->SetTitle(tr("Upscale and blur"));
+  m_scaled_efb_exclude_blur->SetDescription(tr(TR_SCALED_EFB_EXCLUDE_BLUR_DESCRIPTION));
 #ifdef HAVE_FFMPEG
   m_dump_use_ffv1->SetDescription(tr(TR_USE_FFV1_DESCRIPTION));
 #endif
