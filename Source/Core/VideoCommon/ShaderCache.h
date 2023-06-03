@@ -243,6 +243,7 @@ private:
   // Copy pipeline for RGBA8 textures
   std::unique_ptr<AbstractPipeline> m_copy_rgba8_pipeline;
   std::unique_ptr<AbstractPipeline> m_rgba8_stereo_copy_pipeline;
+  std::unique_ptr<AbstractPipeline> m_blur_pipeline;
 
   // Palette conversion pipelines
   std::array<std::unique_ptr<AbstractPipeline>, NUM_PALETTE_CONVERSION_SHADERS>
