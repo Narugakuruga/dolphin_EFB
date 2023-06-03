@@ -13,6 +13,7 @@ class QCheckBox;
 class QComboBox;
 class QSpinBox;
 class ToolTipCheckBox;
+class GraphicsSlider;
 
 class AdvancedWidget final : public QWidget
 {
@@ -75,4 +76,16 @@ private:
   // Experimental
   ConfigBool* m_defer_efb_access_invalidation;
   ConfigBool* m_manual_texture_sampling;
+
+  // EFB exclusions
+  GraphicsBool* m_scaled_efb_exclude_enable;
+  GraphicsBool* m_scaled_efb_exclude_alt;
+  GraphicsBool* m_scaled_efb_exclude_blur;
+  GraphicsBool* m_scaled_efb_exclude_downscale;
+  GraphicsSlider* m_scaled_efb_exclude_slider_width;
+  GraphicsInteger* m_scaled_efb_exclude_integer_width;
+  GraphicsSlider* m_scaled_efb_exclude_slider_bloom_strength;
+  GraphicsSlider* m_scaled_efb_exclude_slider_blur_radius;
+  QLabel* m_bloom_strength_val_label;
+  QLabel* m_blur_radius_val_label;
 };
