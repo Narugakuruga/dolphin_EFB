@@ -174,6 +174,13 @@ struct VideoConfig final
   int iSaveTargetId = 0;  // TODO: Should be dropped
   u32 iMissingColorValue = 0;
   bool bFastTextureSampling = false;
+  bool bEFBBlur = false;
+  bool bEFBExcludeDownscale = false;
+  unsigned int iEFBExcludeWidth = 0;
+  unsigned int iEFBExcludeBloomStrength = 20;
+  unsigned int iEFBExcludeBlurRadius = 4;
+  bool bEFBExcludeAlt = false;
+  bool bEFBExcludeEnabled = false;
 #ifdef __APPLE__
   bool bNoMipmapping = false;  // Used by macOS fifoci to work around an M1 bug
 #endif
