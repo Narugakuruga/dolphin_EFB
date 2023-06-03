@@ -350,6 +350,8 @@ private:
 
   RcTcacheEntry ApplyPaletteToEntry(RcTcacheEntry& entry, const u8* palette, TLUTFormat tlutfmt);
 
+  void BlurCopy(TCacheEntry* existing_entry);
+
   RcTcacheEntry ReinterpretEntry(const RcTcacheEntry& existing_entry, TextureFormat new_format);
 
   RcTcacheEntry DoPartialTextureUpdates(RcTcacheEntry& entry_to_update, const u8* palette,
@@ -451,7 +453,9 @@ private:
   // We store this in the class so that the same staging texture can be used for multiple
   // readbacks, saving the overhead of allocating a new buffer every time.
   std::unique_ptr<AbstractStagingTexture> m_readback_texture;
-
+  u8* m_bloom_dst_check = nullptr;
+  int m_efb_num = 0;
+  
   void OnFrameEnd();
 
   Common::Flag m_force_reload_textures;
